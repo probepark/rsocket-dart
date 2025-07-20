@@ -7,6 +7,7 @@ import '../core/rsocket_requester.dart';
 import '../duplex_connection.dart';
 import '../frame/frame.dart';
 import '../frame/frame_types.dart' as frame_types;
+import '../logging.dart';
 import '../payload.dart';
 import '../rsocket.dart';
 
@@ -38,10 +39,8 @@ class BaseResponder {
           } else {
             temp.responder = responder;
             rsocketRequester = temp;
-            // Send initial lease grant if lease is enabled
-            if (setupFrame.leaseEnable) {
-              temp.grantLease();
-            }
+            // Initial lease grant is handled by the acceptor or server configuration
+            // Do not automatically grant lease on connection
           }
         } else {
           rsocketRequester?.receiveFrame(frame);
@@ -54,9 +53,16 @@ class BaseResponder {
 
 class TcpRSocketResponder extends BaseResponder implements Closeable {
   late ServerSocket serverSocket;
+  final Duration healthCheckInterval;
+  final int maxMissedHeartbeats;
 
   TcpRSocketResponder(
-      Uri uri, ServerSocket serverSocket, SocketAcceptor socketAcceptor) {
+      Uri uri, 
+      ServerSocket serverSocket, 
+      SocketAcceptor socketAcceptor, {
+      this.healthCheckInterval = const Duration(seconds: 5),
+      this.maxMissedHeartbeats = 3,
+  }) {
     this.uri = uri;
     this.socketAcceptor = socketAcceptor;
     this.serverSocket = serverSocket;
@@ -64,7 +70,11 @@ class TcpRSocketResponder extends BaseResponder implements Closeable {
 
   void accept() {
     serverSocket.listen((socket) {
-      receiveConnection(TcpDuplexConnection(socket)).then((value) => {});
+      receiveConnection(TcpDuplexConnection(
+        socket,
+        healthCheckInterval: healthCheckInterval,
+        maxMissedHeartbeats: maxMissedHeartbeats,
+      )).then((value) => {});
     });
   }
 
@@ -76,9 +86,16 @@ class TcpRSocketResponder extends BaseResponder implements Closeable {
 
 class WebSocketRSocketResponder extends BaseResponder implements Closeable {
   late HttpServer httpServer;
+  final Duration healthCheckInterval;
+  final int maxMissedHeartbeats;
 
   WebSocketRSocketResponder(
-      Uri uri, HttpServer httpServer, SocketAcceptor socketAcceptor) {
+      Uri uri, 
+      HttpServer httpServer, 
+      SocketAcceptor socketAcceptor, {
+      this.healthCheckInterval = const Duration(seconds: 5),
+      this.maxMissedHeartbeats = 3,
+  }) {
     this.uri = uri;
     this.socketAcceptor = socketAcceptor;
     this.httpServer = httpServer;
@@ -90,9 +107,13 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
         try {
           final webSocket = await WebSocketTransformer.upgrade(req);
           await receiveConnection(
-              WebSocketDuplexConnection(IOWebSocketChannel(webSocket)));
+              WebSocketDuplexConnection(
+                IOWebSocketChannel(webSocket),
+                healthCheckInterval: healthCheckInterval,
+                maxMissedHeartbeats: maxMissedHeartbeats,
+              ));
         } catch (e) {
-          print('Error handling WebSocket connection: $e');
+          RSocketLogger.error('Error handling WebSocket connection', e);
         }
       }
     });

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../logging.dart';
 import '../payload.dart';
 import '../rsocket.dart';
 import '../rsocket_connector.dart';
@@ -75,7 +76,7 @@ class LoadBalanceRSocket extends RSocket {
       healthCheckTimer!.cancel();
     }
     activeRSockets.forEach((url, rsocket) {
-      print('Close RSocket: ${url}');
+      RSocketLogger.debug('Closing active RSocket: $url');
       rsocket.close();
     });
   }
@@ -83,7 +84,7 @@ class LoadBalanceRSocket extends RSocket {
   Future<void> closeStales(Map<String, RSocket> staleRSockets) async {
     await new Future.delayed(const Duration(seconds: 15));
     staleRSockets.forEach((url, rsocket) {
-      print('Close RSocket: ${url}');
+      RSocketLogger.debug('Closing stale RSocket: $url');
       rsocket.close();
     });
   }

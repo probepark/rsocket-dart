@@ -5,10 +5,11 @@ import '../core/rsocket_error.dart';
 import '../frame/frame_types.dart' as frame_types;
 import '../duplex_connection.dart';
 import '../payload.dart';
+import '../retry_config.dart';
 import '../rsocket.dart';
 import '../frame/frame.dart';
 import '../io/bytes.dart';
-import '../lease/lease_manager.dart';
+import '../logging.dart';
 import 'stream_id_supplier.dart';
 import 'stream_demand_tracker.dart';
 
@@ -177,6 +178,7 @@ class RSocketRequester extends RSocket {
   bool closed = false;
   double _availability = 1.0;
   Timer? keepAliveTimer;
+  Timer? _keepAliveResponseTimer;
   late StreamIdSupplier streamIdSupplier;
   ConnectionSetupPayload? connectionSetupPayload;
   late DuplexConnection connection;
@@ -200,6 +202,11 @@ class RSocketRequester extends RSocket {
   // Demand tracking for flow control
   final StreamDemandTracker _incomingDemandTracker = StreamDemandTracker();
   final StreamDemandTracker _outgoingDemandTracker = StreamDemandTracker();
+  
+  // Connection health monitoring
+  StreamSubscription? _healthSubscription;
+  final Duration _keepAliveTimeout = Duration(seconds: 30);
+  Function(ConnectionHealth)? onConnectionHealthChanged;
 
   RSocketRequester(String mode, ConnectionSetupPayload connectionSetupPayload,
       DuplexConnection connection, {bool enableLease = false}) {
@@ -232,6 +239,15 @@ class RSocketRequester extends RSocket {
     this.connection.closeHandler = () {
       close();
     };
+    
+    // Monitor connection health
+    _healthSubscription = this.connection.healthStream.listen((health) {
+      onConnectionHealthChanged?.call(health);
+      if (!health.isHealthy && !closed) {
+        close();
+      }
+    });
+    
     initRSocketCallStubs();
   }
 
@@ -243,10 +259,12 @@ class RSocketRequester extends RSocket {
       // Check lease if enabled
       if (leaseEnabled && mode == 'requester') {
         if (leaseManager == null || !leaseManager!.consumeRequest()) {
+          RSocketLogger.debug('Request rejected: Lease exhausted or expired. LeaseManager: $leaseManager, hasAvailableRequests: ${leaseManager?.hasAvailableRequests}');
           completer.completeError(RSocketException(
               RSocketErrorCode.REJECTED, 'Lease exhausted or expired'));
           return completer.future;
         }
+        RSocketLogger.debug('Request allowed: Available requests: ${leaseManager!.availableRequests}');
       }
 
       // Check stream limit
@@ -398,6 +416,7 @@ class RSocketRequester extends RSocket {
           (Timer t) {
         if (!closed) {
           connection.write(FrameCodec.encodeKeepAlive(false, 0));
+          _startKeepAliveResponseTimer();
         } else {
           keepAliveTimer?.cancel();
         }
@@ -410,6 +429,16 @@ class RSocketRequester extends RSocket {
       grantLease();
     }
   }
+  
+  void _startKeepAliveResponseTimer() {
+    _keepAliveResponseTimer?.cancel();
+    _keepAliveResponseTimer = Timer(_keepAliveTimeout, () {
+      if (!closed) {
+        // No keep-alive response received within timeout - connection is likely dead
+        close();
+      }
+    });
+  }
 
   @override
   void close() {
@@ -417,6 +446,8 @@ class RSocketRequester extends RSocket {
       closed = true;
       _availability = 0.0;
       keepAliveTimer?.cancel();
+      _keepAliveResponseTimer?.cancel();
+      _healthSubscription?.cancel();
       leaseManager?.dispose();
       serverLeaseManager?.dispose();
 
@@ -518,6 +549,8 @@ class RSocketRequester extends RSocket {
         break;
       case frame_types.KEEPALIVE:
         var keepAliveFrame = frame as KeepAliveFrame;
+        _keepAliveResponseTimer?.cancel(); // Cancel timeout timer as we received response
+        
         if (keepAliveFrame.respond) {
           connection.write(FrameCodec.encodeKeepAlive(
               false, keepAliveFrame.lastReceivedPosition));
@@ -605,8 +638,8 @@ class RSocketRequester extends RSocket {
             } else {
               // TODO: Buffer or drop based on QoS policy
               // For now, we'll drop frames when there's no demand
-              print(
-                  'Warning: Dropping frame due to lack of demand on stream $requesterStreamId');
+              RSocketLogger.warning(
+                  'Dropping frame due to lack of demand on stream $requesterStreamId');
             }
           }, onDone: () {
             connection.write(
