@@ -80,13 +80,15 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
   }
 
   void accept() {
-    httpServer.listen((HttpRequest req) {
+    httpServer.listen((HttpRequest req) async {
       if (req.uri.path == uri.path) {
-        WebSocketTransformer.upgrade(req)
-            .then((webSocket) =>
-                receiveConnection(WebSocketDuplexConnection(
-                    IOWebSocketChannel(webSocket))))
-            .then((value) => {});
+        try {
+          final webSocket = await WebSocketTransformer.upgrade(req);
+          await receiveConnection(
+              WebSocketDuplexConnection(IOWebSocketChannel(webSocket)));
+        } catch (e) {
+          print('Error handling WebSocket connection: $e');
+        }
       }
     });
   }

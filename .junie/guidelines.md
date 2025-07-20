@@ -97,7 +97,7 @@ just stream
 - **Classes**: PascalCase (`RSocketConnector`, `ConnectionSetupPayload`)
 - **Methods/Variables**: camelCase (`requestResponse`, `keepAliveInterval`)
 - **Private fields**: Prefix with underscore (`_dataMimeType`, `_metadataMimeType`)
-- **Constants**: camelCase with descriptive names
+- **Constants**: UPPER_CASE_WITH_UNDERSCORES (`MAJOR_VERSION`, `RESERVED`)
 
 #### Architectural Patterns
 
