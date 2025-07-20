@@ -1,5 +1,7 @@
 import 'payload.dart';
 
+export 'lease/lease_manager.dart';
+
 typedef RequestResponse = Future<Payload> Function(Payload? payload);
 typedef FireAndForget = Future<void> Function(Payload? payload);
 typedef RequestStream = Stream<Payload?> Function(Payload? payload);
@@ -26,7 +28,6 @@ class RSocket implements Closeable, Availability {
       (Stream<Payload> payloads) => Stream.error(Exception('Unsupported'));
   MetadataPush? metadataPush =
       (Payload? payload) => Future.error(Exception('Unsupported'));
-  RequestResponse? subscribe= (Payload? payload)=> Future.error(Exception('Unsupported'));
   @override
   void close() {}
 
@@ -72,6 +73,12 @@ SocketAcceptor fireAndForgetAcceptor(FireAndForget fireAndForget) {
 SocketAcceptor requestStreamAcceptor(RequestStream requestStream) {
   return (setup, sendingSocket) {
     return RSocket()..requestStream = requestStream;
+  };
+}
+
+SocketAcceptor requestChannelAcceptor(RequestChannel requestChannel) {
+  return (setup, sendingSocket) {
+    return RSocket()..requestChannel = requestChannel;
   };
 }
 
