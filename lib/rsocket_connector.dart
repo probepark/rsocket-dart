@@ -10,6 +10,60 @@ import 'payload.dart';
 import 'retry_config.dart';
 import 'rsocket.dart';
 
+class _ReconnectingRSocket extends RSocket {
+  RSocket? _activeRSocket;
+  final RSocketConnector _connector;
+  final String _url;
+  
+  _ReconnectingRSocket(this._connector, this._url) {
+    requestResponse = (payload) async {
+      final active = _activeRSocket;
+      if (active == null) throw Exception('No active connection');
+      return active.requestResponse!(payload);
+    };
+    
+    fireAndForget = (payload) async {
+      final active = _activeRSocket;
+      if (active == null) throw Exception('No active connection');
+      return active.fireAndForget!(payload);
+    };
+    
+    requestStream = (payload) {
+      final active = _activeRSocket;
+      if (active == null) return Stream.error(Exception('No active connection'));
+      return active.requestStream!(payload);
+    };
+    
+    requestChannel = (payloads) {
+      final active = _activeRSocket;
+      if (active == null) return Stream.error(Exception('No active connection'));
+      return active.requestChannel!(payloads);
+    };
+    
+    metadataPush = (payload) async {
+      final active = _activeRSocket;
+      if (active == null) throw Exception('No active connection');
+      return active.metadataPush!(payload);
+    };
+  }
+  
+  void _updateActiveRSocket(RSocket newRSocket) {
+    _activeRSocket?.close();
+    _activeRSocket = newRSocket;
+  }
+  
+  @override
+  void close() {
+    _activeRSocket?.close();
+    _activeRSocket = null;
+  }
+  
+  @override
+  double availability() {
+    return _activeRSocket?.availability() ?? 0.0;
+  }
+}
+
 class RSocketConnector {
   Payload? payload;
   int keepAliveInterval = 20;
@@ -22,6 +76,7 @@ class RSocketConnector {
   RetryConfig _retryConfig = RetryConfig.defaultConfig;
   bool _autoReconnect = false;
   String? _lastConnectedUrl;
+  _ReconnectingRSocket? _reconnectingProxy;
   
   final BehaviorSubject<ConnectionEvent> _connectionStateController = 
       BehaviorSubject<ConnectionEvent>.seeded(ConnectionEvent(ConnectionState.disconnected));
@@ -81,8 +136,12 @@ class RSocketConnector {
 
   Future<RSocket> connect(String url) async {
     _lastConnectedUrl = url;
+    
     if (_autoReconnect) {
-      return _connectWithRetry(url);
+      _reconnectingProxy = _ReconnectingRSocket(this, url);
+      final initialConnection = await _connectWithRetry(url);
+      _reconnectingProxy!._updateActiveRSocket(initialConnection);
+      return _reconnectingProxy!;
     } else {
       return _connectOnce(url);
     }
@@ -185,9 +244,10 @@ class RSocketConnector {
   void _triggerReconnection() {
     if (_lastConnectedUrl != null && _autoReconnect) {
       Timer(Duration(milliseconds: 100), () {
-        _connectWithRetry(_lastConnectedUrl!).catchError((error) {
+        _connectWithRetry(_lastConnectedUrl!).then((newConnection) {
+          _reconnectingProxy?._updateActiveRSocket(newConnection);
+        }).catchError((error) {
           _connectionStateController.add(ConnectionEvent(ConnectionState.failed, error: error));
-          throw error;
         });
       });
     }

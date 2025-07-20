@@ -8,6 +8,7 @@ import 'package:rxdart/rxdart.dart';
 import 'io/bytes.dart';
 import 'retry_config.dart';
 import 'rsocket.dart';
+import 'health_monitoring_mixin.dart';
 
 abstract class DuplexConnection implements Closeable, Availability {
   double _availability = 1.0;
@@ -49,74 +50,25 @@ typedef TcpChunkHandler = void Function(Uint8List chunk);
 typedef CloseHandler = void Function();
 typedef ConnectionHealthHandler = void Function(ConnectionHealth health);
 
-class TcpDuplexConnection extends DuplexConnection {
+class TcpDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
   Socket socket;
   bool closed = false;
-  Timer? _healthCheckTimer;
-  DateTime _lastActivity = DateTime.now();
-  int _missedHeartbeats = 0;
-  final Duration _healthCheckInterval = Duration(seconds: 5);
-  final int _maxMissedHeartbeats = 3;
 
   TcpDuplexConnection(this.socket);
 
   @override
   void init() {
-    _startHealthMonitoring();
+    startHealthMonitoring(connectionType: 'TCP');
     
     socket.listen((data) {
-      _lastActivity = DateTime.now();
-      _missedHeartbeats = 0;
-      updateHealth(ConnectionHealth(
-        isHealthy: true,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: 0,
-      ));
+      recordActivity();
       receiveHandler!(data);
     }, onDone: () {
-      updateHealth(ConnectionHealth(
-        isHealthy: false,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: _missedHeartbeats,
-        errorMessage: 'Connection closed by remote',
-      ));
+      recordConnectionClosed('Connection closed by remote');
       close();
     }, onError: (e) {
-      updateHealth(ConnectionHealth(
-        isHealthy: false,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: _missedHeartbeats,
-        errorMessage: e.toString(),
-      ));
+      recordConnectionError(e.toString());
       close();
-    });
-  }
-
-  void _startHealthMonitoring() {
-    _healthCheckTimer = Timer.periodic(_healthCheckInterval, (timer) {
-      if (closed) {
-        timer.cancel();
-        return;
-      }
-      
-      final now = DateTime.now();
-      final timeSinceLastActivity = now.difference(_lastActivity);
-      
-      if (timeSinceLastActivity > _healthCheckInterval) {
-        _missedHeartbeats++;
-        
-        final isHealthy = _missedHeartbeats < _maxMissedHeartbeats;
-        updateHealth(ConnectionHealth(
-          isHealthy: isHealthy,
-          lastHeartbeat: _lastActivity,
-          missedHeartbeats: _missedHeartbeats,
-          errorMessage: isHealthy ? null : 'Connection appears to be stale',
-        ));
-        
-        if (!isHealthy) {
-          close();
-        }
-      }
     });
   }
 
@@ -125,14 +77,9 @@ class TcpDuplexConnection extends DuplexConnection {
     if (!closed) {
       closed = true;
       _availability = 0.0;
-      _healthCheckTimer?.cancel();
+      stopHealthMonitoring();
       socket.close();
-      updateHealth(ConnectionHealth(
-        isHealthy: false,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: _missedHeartbeats,
-        errorMessage: 'Connection closed',
-      ));
+      recordFinalHealth('Connection closed');
       closeHandler?.call();
       dispose();
     }
@@ -141,83 +88,34 @@ class TcpDuplexConnection extends DuplexConnection {
   @override
   void write(Uint8List chunk) {
     if (!closed) {
-      _lastActivity = DateTime.now();
+      recordActivity();
       socket.add(chunk);
     }
   }
 }
 
-class WebSocketDuplexConnection extends DuplexConnection {
+class WebSocketDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
   WebSocketChannel webSocket;
   bool closed = true;
-  Timer? _healthCheckTimer;
-  DateTime _lastActivity = DateTime.now();
-  int _missedHeartbeats = 0;
-  final Duration _healthCheckInterval = Duration(seconds: 5);
-  final int _maxMissedHeartbeats = 3;
 
   WebSocketDuplexConnection(this.webSocket);
 
   @override
   void init() {
     closed = false;
-    _startHealthMonitoring();
+    startHealthMonitoring(connectionType: 'WebSocket');
 
     webSocket.stream.listen((message) {
-      _lastActivity = DateTime.now();
-      _missedHeartbeats = 0;
-      updateHealth(ConnectionHealth(
-        isHealthy: true,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: 0,
-      ));
+      recordActivity();
       var data = message as List<int>;
       var frameLenBytes = i24ToBytes(data.length);
       receiveHandler!(Uint8List.fromList(frameLenBytes + data));
     }, onDone: () {
-      updateHealth(ConnectionHealth(
-        isHealthy: false,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: _missedHeartbeats,
-        errorMessage: 'WebSocket connection closed by remote',
-      ));
+      recordConnectionClosed('WebSocket connection closed by remote');
       close();
     }, onError: (e) {
-      updateHealth(ConnectionHealth(
-        isHealthy: false,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: _missedHeartbeats,
-        errorMessage: e.toString(),
-      ));
+      recordConnectionError(e.toString());
       close();
-    });
-  }
-
-  void _startHealthMonitoring() {
-    _healthCheckTimer = Timer.periodic(_healthCheckInterval, (timer) {
-      if (closed) {
-        timer.cancel();
-        return;
-      }
-      
-      final now = DateTime.now();
-      final timeSinceLastActivity = now.difference(_lastActivity);
-      
-      if (timeSinceLastActivity > _healthCheckInterval) {
-        _missedHeartbeats++;
-        
-        final isHealthy = _missedHeartbeats < _maxMissedHeartbeats;
-        updateHealth(ConnectionHealth(
-          isHealthy: isHealthy,
-          lastHeartbeat: _lastActivity,
-          missedHeartbeats: _missedHeartbeats,
-          errorMessage: isHealthy ? null : 'WebSocket connection appears to be stale',
-        ));
-        
-        if (!isHealthy) {
-          close();
-        }
-      }
     });
   }
 
@@ -226,14 +124,9 @@ class WebSocketDuplexConnection extends DuplexConnection {
     if (!closed) {
       closed = true;
       _availability = 0.0;
-      _healthCheckTimer?.cancel();
+      stopHealthMonitoring();
       webSocket.sink.close();
-      updateHealth(ConnectionHealth(
-        isHealthy: false,
-        lastHeartbeat: _lastActivity,
-        missedHeartbeats: _missedHeartbeats,
-        errorMessage: 'WebSocket connection closed',
-      ));
+      recordFinalHealth('WebSocket connection closed');
       closeHandler?.call();
       dispose();
     }
@@ -242,7 +135,7 @@ class WebSocketDuplexConnection extends DuplexConnection {
   @override
   void write(Uint8List chunk) {
     if (!closed) {
-      _lastActivity = DateTime.now();
+      recordActivity();
       //remove frame length: 3 bytes
       webSocket.sink.add(chunk.sublist(3));
     }
