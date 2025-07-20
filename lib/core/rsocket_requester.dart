@@ -17,6 +17,10 @@ Future<void> voidFuture() async {}
 const MAX_REQUEST_N_SIZE = 0x7FFFFFFF;
 const DEFAULT_REQUEST_N = 32;
 
+/// Maximum number of concurrent streams allowed per connection
+/// This prevents resource exhaustion attacks
+const MAX_CONCURRENT_STREAMS = 256;
+
 abstract class Subscriber {
   void onNext(Payload? value);
 
@@ -70,8 +74,11 @@ class StreamSubscriber implements Subscriber {
     _received++;
 
     // Request more items when we've consumed 75% of requested items
+    // This threshold ensures smooth streaming by requesting more data before
+    // exhausting the current buffer, preventing stalls in high-throughput scenarios
+    const REQUEST_THRESHOLD = 0.75;
     if (requestN != MAX_REQUEST_N_SIZE &&
-        _received >= (_requested * 0.75).floor()) {
+        _received >= (_requested * REQUEST_THRESHOLD).floor()) {
       _requestMore();
     }
   }
@@ -181,6 +188,9 @@ class RSocketRequester extends RSocket {
   RSocket? responder;
   String mode = 'requester';
   ErrorConsumer? errorConsumer;
+  
+  /// Track active stream count for resource protection
+  int _activeStreamCount = 0;
 
   // Lease management
   LeaseManager? leaseManager;
@@ -239,7 +249,14 @@ class RSocketRequester extends RSocket {
         }
       }
 
+      // Check stream limit
+      if (_activeStreamCount >= MAX_CONCURRENT_STREAMS) {
+        return Future.error(RSocketException(
+            RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
+      }
+      
       var streamId = streamIdSupplier.nextStreamId(senders)!;
+      _activeStreamCount++;
       connection
           .write(FrameCodec.encodeRequestResponseFrame(streamId, payload!));
       senders[streamId] = CompleterSubscriber(completer);
@@ -255,8 +272,17 @@ class RSocketRequester extends RSocket {
         }
       }
 
+      // Check stream limit
+      if (_activeStreamCount >= MAX_CONCURRENT_STREAMS) {
+        return Future.error(RSocketException(
+            RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
+      }
+      
       var streamId = streamIdSupplier.nextStreamId(senders)!;
+      _activeStreamCount++;
       connection.write(FrameCodec.encodeFireAndForgetFrame(streamId, payload!));
+      // Fire-and-forget completes immediately
+      _activeStreamCount--;
       return Future.value(() {});
     };
     //RSocket requestStream
@@ -269,7 +295,14 @@ class RSocketRequester extends RSocket {
         }
       }
 
+      // Check stream limit
+      if (_activeStreamCount >= MAX_CONCURRENT_STREAMS) {
+        return Stream.error(RSocketException(
+            RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
+      }
+      
       var streamId = streamIdSupplier.nextStreamId(senders)!;
+      _activeStreamCount++;
       // Send initial request with the specified or default requestN
       connection.write(FrameCodec.encodeRequestStreamFrame(
           streamId, initialRequestN, payload!));
@@ -286,6 +319,7 @@ class RSocketRequester extends RSocket {
         onCancel: () {
           connection.write(FrameCodec.encodeCancelFrame(streamId));
           senders.remove(streamId);
+          _activeStreamCount--;
           _outgoingDemandTracker.removeStream(streamId);
         },
       );
@@ -299,7 +333,14 @@ class RSocketRequester extends RSocket {
     };
     //RSocket requestChannel
     requestChannel = (payloads) {
+      // Check stream limit
+      if (_activeStreamCount >= MAX_CONCURRENT_STREAMS) {
+        return Stream.error(RSocketException(
+            RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
+      }
+      
       var streamId = streamIdSupplier.nextStreamId(senders)!;
+      _activeStreamCount++;
       StreamSubscription? payloadSubscription;
       
       var streamSubscriber = StreamSubscriber(
@@ -310,6 +351,7 @@ class RSocketRequester extends RSocket {
         onCancel: () {
           connection.write(FrameCodec.encodeCancelFrame(streamId));
           senders.remove(streamId);
+          _activeStreamCount--;
           _outgoingDemandTracker.removeStream(streamId);
           payloadSubscription?.cancel();
         },
@@ -338,6 +380,7 @@ class RSocketRequester extends RSocket {
         connection.write(FrameCodec.encodeErrorFrame(
             streamId, rsocketError.code!, rsocketError.message));
         senders.remove(streamId);
+        _activeStreamCount--;
       });
       
       return streamSubscriber.payloadStream()
@@ -461,6 +504,7 @@ class RSocketRequester extends RSocket {
           var payload = payloadFrame.payload;
           if (payloadFrame.completed) {
             senders.remove(streamId);
+            _activeStreamCount--;
             if (payload?.data != null) {
               subscriber!.onNext(payload);
             }
@@ -489,6 +533,7 @@ class RSocketRequester extends RSocket {
           if (senders.containsKey(streamId)) {
             var subscriber = senders[streamId]!;
             senders.remove(streamId);
+            _activeStreamCount--;
             subscriber.onError(error);
           }
         }
@@ -498,6 +543,7 @@ class RSocketRequester extends RSocket {
         if (senders.containsKey(streamId)) {
           var subscriber = senders[streamId]!;
           senders.remove(streamId);
+          _activeStreamCount--;
 
           // Handle different types of subscribers
           if (subscriber is StreamSubscriber) {
@@ -566,6 +612,7 @@ class RSocketRequester extends RSocket {
             connection.write(
                 FrameCodec.encodePayloadFrame(requesterStreamId, true, null));
             senders.remove(requesterStreamId);
+            _activeStreamCount--;
             _incomingDemandTracker.removeStream(requesterStreamId);
           }, onError: (Object error) {
             senders.remove(requesterStreamId);
@@ -581,6 +628,7 @@ class RSocketRequester extends RSocket {
           });
           // Store the subscription so it can be cancelled
           senders[requesterStreamId] = _StreamSubscription(subscription);
+          _activeStreamCount++;
         }
         break;
       case frame_types.REQUEST_N:
@@ -621,6 +669,7 @@ class RSocketRequester extends RSocket {
           // Store the controller so we can send more payloads when they arrive
           var channelSubscriber = _ChannelSubscriber(inputController);
           senders[requesterStreamId] = channelSubscriber;
+          _activeStreamCount++;
           
           // Call the responder's requestChannel handler
           var subscription = responder!.requestChannel!(inputController.stream).listen(
@@ -631,6 +680,7 @@ class RSocketRequester extends RSocket {
             connection.write(
                 FrameCodec.encodePayloadFrame(requesterStreamId, true, null));
             senders.remove(requesterStreamId);
+            _activeStreamCount--;
             inputController.close();
           }, onError: (Object error) {
             if (error is RSocketException) {
@@ -642,6 +692,7 @@ class RSocketRequester extends RSocket {
                   RSocketErrorCode.APPLICATION_ERROR, error.toString()));
             }
             senders.remove(requesterStreamId);
+            _activeStreamCount--;
             inputController.close();
           });
           

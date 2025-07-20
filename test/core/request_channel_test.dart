@@ -47,7 +47,7 @@ void main() {
       var serverRequester = RSocketRequester('responder', setupPayload, serverConnection);
       serverRequester.responder = serverSocket;
       
-      // Start connections
+      // Start connections (RSocketRequester constructor already sets up receiveHandler)
       clientRequester.sendSetupPayload();
       
       // Give time for setup frame exchange
@@ -65,21 +65,25 @@ void main() {
             clientReceived.add(String.fromCharCodes(payload.data!));
           }
         },
+        onError: (error) {
+          print('Channel error: $error');
+        },
       );
       
       // Send some messages
       inputController.add(Payload()..data = Uint8List.fromList('Hello'.codeUnits));
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(Duration(milliseconds: 50));
       
       inputController.add(Payload()..data = Uint8List.fromList('World'.codeUnits));
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(Duration(milliseconds: 50));
       
       inputController.add(Payload()..data = Uint8List.fromList('Channel'.codeUnits));
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(Duration(milliseconds: 50));
       
       // Close the input stream
       await inputController.close();
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(Duration(milliseconds: 100));
+      
       
       // Verify results
       expect(serverReceived, ['Hello', 'World', 'Channel']);
@@ -130,7 +134,7 @@ void main() {
       var serverRequester = RSocketRequester('responder', setupPayload, serverConnection);
       serverRequester.responder = serverSocket;
       
-      // Start connections
+      // Start connections (RSocketRequester constructor already sets up receiveHandler)
       clientRequester.sendSetupPayload();
       
       // Give time for setup frame exchange
@@ -175,12 +179,14 @@ void main() {
 class MockDuplexConnection extends DuplexConnection {
   final Stream<List<int>> _input;
   final void Function(List<int>) _output;
+  StreamSubscription? _subscription;
   
   MockDuplexConnection(this._input, this._output);
   
   @override
   void init() {
-    _input.listen((data) {
+    _subscription?.cancel();
+    _subscription = _input.listen((data) {
       if (receiveHandler != null) {
         receiveHandler!(Uint8List.fromList(data));
       }

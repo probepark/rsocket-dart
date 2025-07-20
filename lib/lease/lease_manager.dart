@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../frame/frame.dart';
-import '../frame/frame_types.dart' as frame_types;
-import '../io/bytes.dart';
 
 /// Represents a lease granted by the server to control request rates
 class Lease {
@@ -41,6 +39,9 @@ class Lease {
 }
 
 /// Manages lease state and enforcement for RSocket connections
+/// Note: Dart is single-threaded with an event loop model, so explicit
+/// synchronization is not needed for thread safety. Operations are atomic
+/// within a single isolate.
 class LeaseManager {
   Lease? _currentLease;
   int _availableRequests = 0;
@@ -89,6 +90,7 @@ class LeaseManager {
   }
 
   /// Consume a request if available
+  /// Thread-safe: Dart's single-threaded model ensures atomic operations
   bool consumeRequest() {
     if (!hasAvailableRequests) {
       return false;

@@ -9,9 +9,7 @@ import 'package:rsocket/rsocket_server.dart';
 
 void main() async {
   // Start server with flow-controlled stream
-  var server = await RSocketServer.bind('tcp://127.0.0.1:7000');
-
-  server.acceptor = (setup, sendingSocket) {
+  var server = RSocketServer.create((setup, sendingSocket) {
     print('[Server] Client connected with setup: ${setup.getDataUtf8()}');
 
     return RSocket()
@@ -22,8 +20,9 @@ void main() async {
         // The server will respect backpressure from REQUEST_N frames
         return _generateInfiniteStream();
       };
-  };
+  });
 
+  var closeable = await server.bind('tcp://127.0.0.1:7000');
   print('[Server] Listening on port 7000...');
 
   // Connect client with flow control
@@ -68,7 +67,7 @@ void main() async {
 
   // Cleanup
   rsocket.close();
-  server.close();
+  closeable.close();
 
   print('Flow control example completed!');
 }

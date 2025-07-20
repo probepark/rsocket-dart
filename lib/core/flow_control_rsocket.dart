@@ -1,5 +1,6 @@
 import '../payload.dart';
 import '../rsocket.dart';
+import 'rsocket_requester.dart';
 
 /// Wrapper for RSocket that provides flow control configuration
 class FlowControlRSocket extends RSocket {
@@ -24,10 +25,12 @@ class FlowControlRSocket extends RSocket {
   /// Request stream with configurable initial request N
   Stream<Payload?> requestStreamWithRequestN(Payload? payload,
       {int? initialRequestN}) {
-    // If delegate is RSocketRequester, use its requestStream with initialRequestN
+    // If delegate is RSocketRequester, cast to access the extended method
     if (_delegate is RSocketRequester) {
       final requester = _delegate as RSocketRequester;
-      return requester.requestStream!(payload, initialRequestN: initialRequestN ?? 32);
+      // Call the requester's method directly with the typed parameters
+      return (requester.requestStream! as Stream<Payload?> Function(Payload?, {int initialRequestN}))(
+          payload, initialRequestN: initialRequestN ?? defaultRequestN);
     }
     // Otherwise fall back to regular requestStream
     return _delegate.requestStream!(payload);

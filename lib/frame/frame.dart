@@ -543,15 +543,32 @@ Payload decodePayload(
     RSocketByteBuffer buffer, bool metadataPresent, int frameLength) {
   var payload = Payload();
   var dataLength = frameLength - 6;
+  
+  // Validate frame length to prevent buffer overflow
+  if (frameLength < 6) {
+    throw Exception('Invalid frame length: $frameLength');
+  }
+  
   if (metadataPresent) {
     var metadataLength = buffer.readI24();
     if (metadataLength != null) {
+      // Validate metadata length doesn't exceed frame bounds
+      if (metadataLength < 0 || metadataLength > dataLength - 3) {
+        throw Exception('Invalid metadata length: $metadataLength');
+      }
+      
       dataLength = dataLength - 3 - metadataLength;
       if (metadataLength > 0) {
         payload.metadata = buffer.readUint8List(metadataLength);
       }
     }
   }
+  
+  // Validate remaining data length
+  if (dataLength < 0) {
+    throw Exception('Invalid data length: $dataLength');
+  }
+  
   if (dataLength > 0) {
     payload.data = buffer.readUint8List(dataLength);
   }
