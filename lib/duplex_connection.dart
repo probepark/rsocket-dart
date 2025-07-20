@@ -9,6 +9,7 @@ import 'io/bytes.dart';
 import 'retry_config.dart';
 import 'rsocket.dart';
 import 'health_monitoring_mixin.dart';
+import 'logging.dart';
 
 abstract class DuplexConnection implements Closeable, Availability {
   double _availability = 1.0;
@@ -75,6 +76,7 @@ class TcpDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
       recordConnectionClosed('Connection closed by remote');
       close();
     }, onError: (e) {
+      RSocketLogger.error('TCP Socket error', e);
       recordConnectionError(e.toString());
       close();
     });
@@ -130,6 +132,7 @@ class WebSocketDuplexConnection extends DuplexConnection with HealthMonitoringMi
       recordConnectionClosed('WebSocket connection closed by remote');
       close();
     }, onError: (e) {
+      RSocketLogger.error('WebSocket error', e);
       recordConnectionError(e.toString());
       close();
     });

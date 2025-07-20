@@ -54,8 +54,15 @@ class _ReconnectingRSocket extends RSocket {
   
   @override
   void close() {
+    // Disable future reconnections
+    _connector.autoReconnect(false);
+    
+    // Close active connection
     _activeRSocket?.close();
     _activeRSocket = null;
+    
+    // Clean up connector resources
+    _connector.dispose();
   }
   
   @override
@@ -75,6 +82,7 @@ class RSocketConnector {
   bool _leaseEnabled = false;
   RetryConfig _retryConfig = RetryConfig.defaultConfig;
   bool _autoReconnect = false;
+  bool _isReconnecting = false;
   String? _lastConnectedUrl;
   _ReconnectingRSocket? _reconnectingProxy;
   
@@ -242,12 +250,16 @@ class RSocketConnector {
   }
   
   void _triggerReconnection() {
-    if (_lastConnectedUrl != null && _autoReconnect) {
+    if (_lastConnectedUrl != null && _autoReconnect && !_isReconnecting) {
+      _isReconnecting = true;
+      
       Timer(Duration(milliseconds: 100), () {
         _connectWithRetry(_lastConnectedUrl!).then((newConnection) {
           _reconnectingProxy?._updateActiveRSocket(newConnection);
         }).catchError((error) {
           _connectionStateController.add(ConnectionEvent(ConnectionState.failed, error: error));
+        }).whenComplete(() {
+          _isReconnecting = false;
         });
       });
     }
