@@ -1,4 +1,6 @@
+export 'logging.dart';
 export 'payload.dart';
+export 'retry_config.dart';
 export 'rsocket.dart';
 export 'rsocket_connector.dart';
 export 'rsocket_server.dart';

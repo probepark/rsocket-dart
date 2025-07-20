@@ -1,5 +1,6 @@
 import 'dart:mirrors';
 
+import '../logging.dart';
 import '../rsocket.dart';
 import 'package:collection/collection.dart' show IterableExtension;
 
@@ -9,7 +10,7 @@ RSocketService? getRSocketServiceAnnotation(dynamic instance) {
   final annotationInstanceMirror =
       clazzDeclaration.metadata.firstWhereOrNull((d) => d.type == classMirror);
   if (annotationInstanceMirror == null) {
-    print('Annotation is not on this class');
+    RSocketLogger.debug('RSocketService annotation not found on class');
     return null;
   }
   return annotationInstanceMirror.reflectee as RSocketService?;

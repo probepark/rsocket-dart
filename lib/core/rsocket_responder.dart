@@ -7,6 +7,7 @@ import '../core/rsocket_requester.dart';
 import '../duplex_connection.dart';
 import '../frame/frame.dart';
 import '../frame/frame_types.dart' as frame_types;
+import '../logging.dart';
 import '../payload.dart';
 import '../rsocket.dart';
 
@@ -38,10 +39,8 @@ class BaseResponder {
           } else {
             temp.responder = responder;
             rsocketRequester = temp;
-            // Send initial lease grant if lease is enabled
-            if (setupFrame.leaseEnable) {
-              temp.grantLease();
-            }
+            // Initial lease grant is handled by the acceptor or server configuration
+            // Do not automatically grant lease on connection
           }
         } else {
           rsocketRequester?.receiveFrame(frame);
@@ -92,7 +91,7 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
           await receiveConnection(
               WebSocketDuplexConnection(IOWebSocketChannel(webSocket)));
         } catch (e) {
-          print('Error handling WebSocket connection: $e');
+          RSocketLogger.error('Error handling WebSocket connection', e);
         }
       }
     });

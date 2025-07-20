@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:typed_data';
+
+import 'package:rxdart/rxdart.dart';
 
 import 'core/rsocket_error.dart';
 import 'core/rsocket_requester.dart';
 import 'duplex_connection.dart';
 import 'payload.dart';
+import 'retry_config.dart';
 import 'rsocket.dart';
 
 class RSocketConnector {
@@ -15,6 +19,20 @@ class RSocketConnector {
   ErrorConsumer? _errorConsumer;
   SocketAcceptor? _acceptor;
   bool _leaseEnabled = false;
+  RetryConfig _retryConfig = RetryConfig.defaultConfig;
+  bool _autoReconnect = false;
+  String? _lastConnectedUrl;
+  
+  final BehaviorSubject<ConnectionEvent> _connectionStateController = 
+      BehaviorSubject<ConnectionEvent>.seeded(ConnectionEvent(ConnectionState.disconnected));
+  final BehaviorSubject<ConnectionHealth> _healthController = 
+      BehaviorSubject<ConnectionHealth>.seeded(ConnectionHealth(
+        isHealthy: false, 
+        lastHeartbeat: DateTime.now()
+      ));
+  
+  Stream<ConnectionEvent> get connectionStateStream => _connectionStateController.stream;
+  Stream<ConnectionHealth> get healthStream => _healthController.stream;
 
   RSocketConnector.create();
 
@@ -50,33 +68,133 @@ class RSocketConnector {
     _leaseEnabled = true;
     return this;
   }
+  
+  RSocketConnector retryConfig(RetryConfig config) {
+    _retryConfig = config;
+    return this;
+  }
+  
+  RSocketConnector autoReconnect([bool enabled = true]) {
+    _autoReconnect = enabled;
+    return this;
+  }
 
   Future<RSocket> connect(String url) async {
-    TcpChunkHandler handler = (Uint8List chunk) {};
-    var connectionSetupPayload = ConnectionSetupPayload()
-      ..keepAliveInterval = keepAliveInterval
-      ..keepAliveMaxLifetime = keepAliveMaxLifeTime
-      ..metadataMimeType = _metadataMimeType
-      ..dataMimeType = _dataMimeType
-      ..data = payload?.data
-      ..metadata = payload?.metadata;
-    return connectRSocket(url, handler).then((conn) {
-      var rsocketRequester =
-          RSocketRequester('requester', connectionSetupPayload, conn, enableLease: _leaseEnabled);
+    _lastConnectedUrl = url;
+    if (_autoReconnect) {
+      return _connectWithRetry(url);
+    } else {
+      return _connectOnce(url);
+    }
+  }
+  
+  Future<RSocket> _connectOnce(String url) async {
+    _connectionStateController.add(ConnectionEvent(ConnectionState.connecting));
+    
+    try {
+      TcpChunkHandler handler = (Uint8List chunk) {};
+      var connectionSetupPayload = ConnectionSetupPayload()
+        ..keepAliveInterval = keepAliveInterval
+        ..keepAliveMaxLifetime = keepAliveMaxLifeTime
+        ..metadataMimeType = _metadataMimeType
+        ..dataMimeType = _dataMimeType
+        ..data = payload?.data
+        ..metadata = payload?.metadata;
+        
+      final conn = await connectRSocket(url, handler);
+      final rsocketRequester = RSocketRequester(
+        'requester', 
+        connectionSetupPayload, 
+        conn, 
+        enableLease: _leaseEnabled
+      );
+      
       if (_acceptor != null) {
-        rsocketRequester.responder =
-            _acceptor!(connectionSetupPayload, rsocketRequester);
+        rsocketRequester.responder = _acceptor!(connectionSetupPayload, rsocketRequester);
         if (rsocketRequester.responder == null) {
           rsocketRequester.close();
-          return Future.error(
-              'RSOCKET-0x00000003: Connection refused, please check setup and security!');
+          _connectionStateController.add(ConnectionEvent(ConnectionState.failed, 
+              error: 'Connection refused, please check setup and security!'));
+          throw Exception('RSOCKET-0x00000003: Connection refused, please check setup and security!');
         }
       } else {
         rsocketRequester.responder = RSocket();
       }
+      
       rsocketRequester.errorConsumer = _errorConsumer;
+      
+      // Monitor connection health and auto-reconnect if enabled
+      rsocketRequester.onConnectionHealthChanged = (health) {
+        if (!_healthController.isClosed) {
+          _healthController.add(health);
+        }
+        if (!health.isHealthy && _autoReconnect && _lastConnectedUrl != null) {
+          // Connection lost, trigger reconnection
+          _triggerReconnection();
+        }
+      };
+      
+      // Monitor connection close events
+      final originalCloseHandler = rsocketRequester.connection.closeHandler;
+      rsocketRequester.connection.closeHandler = () {
+        if (_autoReconnect && _lastConnectedUrl != null && !rsocketRequester.closed) {
+          _triggerReconnection();
+        }
+        originalCloseHandler?.call();
+      };
+      
       rsocketRequester.sendSetupPayload();
+      
+      _connectionStateController.add(ConnectionEvent(ConnectionState.connected));
+      if (!_healthController.isClosed) {
+        _healthController.add(ConnectionHealth(isHealthy: true, lastHeartbeat: DateTime.now()));
+      }
+      
       return rsocketRequester;
-    });
+    } catch (error) {
+      _connectionStateController.add(ConnectionEvent(ConnectionState.failed, error: error));
+      rethrow;
+    }
+  }
+  
+  Future<RSocket> _connectWithRetry(String url) async {
+    int attemptNumber = 0;
+    
+    while (true) {
+      try {
+        return await _connectOnce(url);
+      } catch (error) {
+        if (!_retryConfig.shouldRetry(error, attemptNumber)) {
+          rethrow;
+        }
+        
+        _connectionStateController.add(ConnectionEvent(
+          ConnectionState.reconnecting, 
+          error: error, 
+          attemptNumber: attemptNumber + 1
+        ));
+        
+        final delay = _retryConfig.calculateDelay(attemptNumber);
+        await Future.delayed(delay);
+        
+        attemptNumber++;
+      }
+    }
+  }
+  
+  void _triggerReconnection() {
+    if (_lastConnectedUrl != null && _autoReconnect) {
+      Timer(Duration(milliseconds: 100), () {
+        _connectWithRetry(_lastConnectedUrl!).catchError((error) {
+          _connectionStateController.add(ConnectionEvent(ConnectionState.failed, error: error));
+          throw error;
+        });
+      });
+    }
+  }
+  
+  void dispose() {
+    _connectionStateController.close();
+    _healthController.close();
   }
 }
