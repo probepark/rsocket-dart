@@ -43,15 +43,15 @@ Please refer https://github.com/rsocket/rsocket-dart/tree/master/lib/route
   - [x] REQUEST_FNF
   - [x] REQUEST_RESPONSE
   - [x] REQUEST_STREAM
-  - [ ] REQUEST_CHANNEL
+  - [x] REQUEST_CHANNEL
   - [x] METADATA_PUSH
 - More Operations
   - [x] Error
-  - [ ] Cancel
+  - [x] Cancel
   - [x] Keepalive
 - QoS
-  - [ ] RequestN
-  - [ ] Lease
+  - [x] RequestN
+  - [x] Lease
 - Transport
   - [x] TCP
   - [x] Websocket

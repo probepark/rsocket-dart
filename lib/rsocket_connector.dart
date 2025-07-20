@@ -14,6 +14,7 @@ class RSocketConnector {
   String _metadataMimeType = 'message/x.rsocket.composite-metadata.v0';
   ErrorConsumer? _errorConsumer;
   SocketAcceptor? _acceptor;
+  bool _leaseEnabled = false;
 
   RSocketConnector.create();
 
@@ -43,6 +44,12 @@ class RSocketConnector {
     this.keepAliveMaxLifeTime = maxLifeTime;
     return this;
   }
+  
+  // enable lease support
+  RSocketConnector lease() {
+    _leaseEnabled = true;
+    return this;
+  }
 
   Future<RSocket> connect(String url) async {
     TcpChunkHandler handler = (Uint8List chunk) {};
@@ -55,7 +62,7 @@ class RSocketConnector {
       ..metadata = payload?.metadata;
     return connectRSocket(url, handler).then((conn) {
       var rsocketRequester =
-          RSocketRequester('requester', connectionSetupPayload, conn);
+          RSocketRequester('requester', connectionSetupPayload, conn, enableLease: _leaseEnabled);
       if (_acceptor != null) {
         rsocketRequester.responder =
             _acceptor!(connectionSetupPayload, rsocketRequester);

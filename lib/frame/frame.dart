@@ -8,6 +8,9 @@ import 'frame_types.dart' as frame_types;
 const int MAJOR_VERSION = 1;
 const int MINOR_VERSION = 0;
 
+// Frame flags
+const int FLAG_LEASE = 0x40;
+
 Iterable<RSocketFrame> parseFrames(List<int> chunk) sync* {
   var byteBuffer = RSocketByteBuffer.fromArray(chunk);
   while (byteBuffer.isReadable()) {
@@ -38,7 +41,7 @@ RSocketFrame? parseFrame(RSocketByteBuffer byteBuffer) {
       frame = RequestFNFFrame.fromBuffer(header, byteBuffer);
       break;
     case frame_types.REQUEST_STREAM:
-      frame = RequestFNFFrame.fromBuffer(header, byteBuffer);
+      frame = RequestStreamFrame.fromBuffer(header, byteBuffer);
       break;
     case frame_types.REQUEST_CHANNEL:
       frame = RequestChannelFrame.fromBuffer(header, byteBuffer);
@@ -128,7 +131,7 @@ class SetupFrame extends RSocketFrame {
   SetupFrame.fromBuffer(RSocketHeader header, RSocketByteBuffer buffer) {
     this.header = header;
     var resumeEnable = (header.flags & 0x80) > 0;
-    leaseEnable = (header.flags & 0x40) > 0;
+    leaseEnable = (header.flags & FLAG_LEASE) > 0;
     // ignore: unused_local_variable
     var majorVersion = buffer.readI16();
     // ignore: unused_local_variable
@@ -173,6 +176,7 @@ class SetupFrame extends RSocketFrame {
 class LeaseFrame extends RSocketFrame {
   int timeToLive = 0;
   int numberOfRequests = 0;
+  Uint8List? metadata;
 
   LeaseFrame();
 
@@ -185,6 +189,12 @@ class LeaseFrame extends RSocketFrame {
     var numberOfRequests = buffer.readI32();
     if (numberOfRequests != null) {
       this.numberOfRequests = numberOfRequests;
+    }
+    // Read optional metadata if present
+    if (header.metaPresent && header.frameLength > 14) {
+      var metadataLength =
+          header.frameLength - 14; // 6 (header) + 8 (ttl + requests)
+      metadata = buffer.readUint8List(metadataLength);
     }
   }
 }
@@ -273,8 +283,9 @@ class RequestStreamFrame extends RSocketFrame {
       RSocketHeader header, RSocketByteBuffer buffer) {
     this.header = header;
     initialRequestN = buffer.readI32();
-    if (header.frameLength > 0) {
-      payload = decodePayload(buffer, header.metaPresent, header.frameLength);
+    if (header.frameLength > 10) { // 6 (header) + 4 (initialRequestN)
+      // Adjust frame length to account for initialRequestN
+      payload = decodePayload(buffer, header.metaPresent, header.frameLength - 4);
     }
   }
 }
@@ -289,8 +300,9 @@ class RequestChannelFrame extends RSocketFrame {
       RSocketHeader header, RSocketByteBuffer buffer) {
     this.header = header;
     initialRequestN = buffer.readI32();
-    if (header.frameLength > 0) {
-      payload = decodePayload(buffer, header.metaPresent, header.frameLength);
+    if (header.frameLength > 10) { // 6 (header) + 4 (initialRequestN)
+      // Adjust frame length to account for initialRequestN
+      payload = decodePayload(buffer, header.metaPresent, header.frameLength - 4);
     }
   }
 }
@@ -328,7 +340,7 @@ class PayloadFrame extends RSocketFrame {
 
   PayloadFrame.fromBuffer(RSocketHeader header, RSocketByteBuffer buffer) {
     this.header = header;
-    completed = (header.flags & 0x40) > 0;
+    completed = (header.flags & FLAG_LEASE) > 0;
     if (header.frameLength > 0) {
       payload = decodePayload(buffer, header.metaPresent, header.frameLength);
     }
@@ -341,13 +353,18 @@ class FrameCodec {
       int keepAliveMaxLifetime,
       String metadataMimeType,
       String dataMimeType,
-      Payload? setupPayload) {
+      Payload? setupPayload,
+      {bool leaseEnable = false}) {
     var frameBuffer = RSocketByteBuffer();
     frameBuffer.writeI24(0); // frame length
     frameBuffer.writeI32(0); //stream id
-    //frame type with metadata indicator without resume token and lease
+    //frame type with metadata indicator, lease flag, without resume token
+    var flags = 0;
+    if (leaseEnable) {
+      flags |= FLAG_LEASE; // Set lease flag
+    }
     writeTFrameTypeAndFlags(
-        frameBuffer, frame_types.SETUP, setupPayload?.metadata, 0);
+        frameBuffer, frame_types.SETUP, setupPayload?.metadata, flags);
     frameBuffer.writeI16(MAJOR_VERSION);
     frameBuffer.writeI16(MINOR_VERSION);
     frameBuffer.writeI32(keepAliveInterval);
@@ -446,7 +463,7 @@ class FrameCodec {
     frameBuffer.writeI32(streamId); //stream id
     var flags = 0;
     if (completed) {
-      flags = flags | 0x40; //complete
+      flags = flags | FLAG_LEASE; //complete
     } else {
       flags = flags | 0x20; //next
     }
@@ -482,21 +499,76 @@ class FrameCodec {
     refillFrameLength(frameBuffer);
     return frameBuffer.toUint8Array();
   }
+
+  static Uint8List encodeRequestNFrame(int streamId, int n) {
+    var frameBuffer = RSocketByteBuffer();
+    frameBuffer.writeI24(0); // frame length
+    frameBuffer.writeI32(streamId); //stream id
+    frameBuffer.writeI8(frame_types.REQUEST_N << 2);
+    frameBuffer.writeI8(0);
+    frameBuffer.writeI32(n);
+    refillFrameLength(frameBuffer);
+    return frameBuffer.toUint8Array();
+  }
+
+  static Uint8List encodeLeaseFrame(int timeToLive, int numberOfRequests,
+      {Uint8List? metadata}) {
+    var frameBuffer = RSocketByteBuffer();
+    frameBuffer.writeI24(0); // frame length
+    frameBuffer.writeI32(0); // stream id (always 0 for LEASE frames)
+
+    // Frame type with optional metadata flag
+    if (metadata != null && metadata.isNotEmpty) {
+      frameBuffer.writeI8((frame_types.LEASE << 2) | 0x01);
+    } else {
+      frameBuffer.writeI8(frame_types.LEASE << 2);
+    }
+    frameBuffer.writeI8(0); // flags
+
+    // Lease data
+    frameBuffer.writeI32(timeToLive);
+    frameBuffer.writeI32(numberOfRequests);
+
+    // Optional metadata
+    if (metadata != null && metadata.isNotEmpty) {
+      frameBuffer.writeBytes(metadata);
+    }
+
+    refillFrameLength(frameBuffer);
+    return frameBuffer.toUint8Array();
+  }
 }
 
 Payload decodePayload(
     RSocketByteBuffer buffer, bool metadataPresent, int frameLength) {
   var payload = Payload();
   var dataLength = frameLength - 6;
+  
+  // Validate frame length to prevent buffer overflow
+  if (frameLength < 6) {
+    throw Exception('Invalid frame length: $frameLength');
+  }
+  
   if (metadataPresent) {
     var metadataLength = buffer.readI24();
     if (metadataLength != null) {
+      // Validate metadata length doesn't exceed frame bounds
+      if (metadataLength < 0 || metadataLength > dataLength - 3) {
+        throw Exception('Invalid metadata length: $metadataLength');
+      }
+      
       dataLength = dataLength - 3 - metadataLength;
       if (metadataLength > 0) {
         payload.metadata = buffer.readUint8List(metadataLength);
       }
     }
   }
+  
+  // Validate remaining data length
+  if (dataLength < 0) {
+    throw Exception('Invalid data length: $dataLength');
+  }
+  
   if (dataLength > 0) {
     payload.data = buffer.readUint8List(dataLength);
   }

@@ -29,7 +29,8 @@ class BaseResponder {
             ..data = setupFrame.payload?.data
             ..metadata = setupFrame.payload?.data;
           var temp =
-              RSocketRequester('responder', connectionSetupPayload, duplexConn);
+              RSocketRequester('responder', connectionSetupPayload, duplexConn, 
+                  enableLease: setupFrame.leaseEnable);
           var responder = socketAcceptor(connectionSetupPayload, temp);
           if (responder == null) {
             duplexConn.close();
@@ -37,6 +38,10 @@ class BaseResponder {
           } else {
             temp.responder = responder;
             rsocketRequester = temp;
+            // Send initial lease grant if lease is enabled
+            if (setupFrame.leaseEnable) {
+              temp.grantLease();
+            }
           }
         } else {
           rsocketRequester?.receiveFrame(frame);
