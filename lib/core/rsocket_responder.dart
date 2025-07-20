@@ -1,6 +1,7 @@
 
 
 import 'package:universal_io/io.dart';
+import 'package:web_socket_channel/io.dart';
 
 import '../core/rsocket_requester.dart';
 import '../duplex_connection.dart';
@@ -83,7 +84,8 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
       if (req.uri.path == uri.path) {
         WebSocketTransformer.upgrade(req)
             .then((webSocket) =>
-                receiveConnection(WebSocketDuplexConnection(webSocket)))
+                receiveConnection(WebSocketDuplexConnection(
+                    IOWebSocketChannel(webSocket))))
             .then((value) => {});
       }
     });

@@ -168,7 +168,7 @@ class AuthMetadata extends MetadataEntry {
   }
 
   static AuthMetadata jwt(String jwtToken) {
-    return AuthMetadata(0x01, utf8.encode(jwtToken) as Uint8List);
+    return AuthMetadata(0x01, Uint8List.fromList(utf8.encode(jwtToken)));
   }
 
   static AuthMetadata simple(String username, String password) {
