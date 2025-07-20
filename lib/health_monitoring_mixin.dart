@@ -6,12 +6,24 @@ mixin HealthMonitoringMixin {
   Timer? _healthCheckTimer;
   DateTime _lastActivity = DateTime.now();
   int _missedHeartbeats = 0;
-  final Duration _healthCheckInterval = Duration(seconds: 5);
-  final int _maxMissedHeartbeats = 3;
+  late final Duration _healthCheckInterval;
+  late final int _maxMissedHeartbeats;
   
   bool get closed;
   void updateHealth(ConnectionHealth health);
   void close();
+  
+  /// Initializes health monitoring parameters with configurable values.
+  /// 
+  /// [healthCheckInterval] - How often to check connection health (default: 5 seconds)
+  /// [maxMissedHeartbeats] - Maximum number of missed heartbeats before marking connection as unhealthy (default: 3)
+  void initializeHealthMonitoring({
+    Duration healthCheckInterval = const Duration(seconds: 5),
+    int maxMissedHeartbeats = 3,
+  }) {
+    _healthCheckInterval = healthCheckInterval;
+    _maxMissedHeartbeats = maxMissedHeartbeats;
+  }
   
   void startHealthMonitoring({String? connectionType}) {
     _healthCheckTimer = Timer.periodic(_healthCheckInterval, (timer) {

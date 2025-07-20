@@ -53,9 +53,16 @@ class BaseResponder {
 
 class TcpRSocketResponder extends BaseResponder implements Closeable {
   late ServerSocket serverSocket;
+  final Duration healthCheckInterval;
+  final int maxMissedHeartbeats;
 
   TcpRSocketResponder(
-      Uri uri, ServerSocket serverSocket, SocketAcceptor socketAcceptor) {
+      Uri uri, 
+      ServerSocket serverSocket, 
+      SocketAcceptor socketAcceptor, {
+      this.healthCheckInterval = const Duration(seconds: 5),
+      this.maxMissedHeartbeats = 3,
+  }) {
     this.uri = uri;
     this.socketAcceptor = socketAcceptor;
     this.serverSocket = serverSocket;
@@ -63,7 +70,11 @@ class TcpRSocketResponder extends BaseResponder implements Closeable {
 
   void accept() {
     serverSocket.listen((socket) {
-      receiveConnection(TcpDuplexConnection(socket)).then((value) => {});
+      receiveConnection(TcpDuplexConnection(
+        socket,
+        healthCheckInterval: healthCheckInterval,
+        maxMissedHeartbeats: maxMissedHeartbeats,
+      )).then((value) => {});
     });
   }
 
@@ -75,9 +86,16 @@ class TcpRSocketResponder extends BaseResponder implements Closeable {
 
 class WebSocketRSocketResponder extends BaseResponder implements Closeable {
   late HttpServer httpServer;
+  final Duration healthCheckInterval;
+  final int maxMissedHeartbeats;
 
   WebSocketRSocketResponder(
-      Uri uri, HttpServer httpServer, SocketAcceptor socketAcceptor) {
+      Uri uri, 
+      HttpServer httpServer, 
+      SocketAcceptor socketAcceptor, {
+      this.healthCheckInterval = const Duration(seconds: 5),
+      this.maxMissedHeartbeats = 3,
+  }) {
     this.uri = uri;
     this.socketAcceptor = socketAcceptor;
     this.httpServer = httpServer;
@@ -89,7 +107,11 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
         try {
           final webSocket = await WebSocketTransformer.upgrade(req);
           await receiveConnection(
-              WebSocketDuplexConnection(IOWebSocketChannel(webSocket)));
+              WebSocketDuplexConnection(
+                IOWebSocketChannel(webSocket),
+                healthCheckInterval: healthCheckInterval,
+                maxMissedHeartbeats: maxMissedHeartbeats,
+              ));
         } catch (e) {
           RSocketLogger.error('Error handling WebSocket connection', e);
         }

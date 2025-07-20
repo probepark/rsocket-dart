@@ -54,7 +54,15 @@ class TcpDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
   Socket socket;
   bool closed = false;
 
-  TcpDuplexConnection(this.socket);
+  TcpDuplexConnection(this.socket, {
+    Duration healthCheckInterval = const Duration(seconds: 5),
+    int maxMissedHeartbeats = 3,
+  }) {
+    initializeHealthMonitoring(
+      healthCheckInterval: healthCheckInterval,
+      maxMissedHeartbeats: maxMissedHeartbeats,
+    );
+  }
 
   @override
   void init() {
@@ -98,7 +106,15 @@ class WebSocketDuplexConnection extends DuplexConnection with HealthMonitoringMi
   WebSocketChannel webSocket;
   bool closed = true;
 
-  WebSocketDuplexConnection(this.webSocket);
+  WebSocketDuplexConnection(this.webSocket, {
+    Duration healthCheckInterval = const Duration(seconds: 5),
+    int maxMissedHeartbeats = 3,
+  }) {
+    initializeHealthMonitoring(
+      healthCheckInterval: healthCheckInterval,
+      maxMissedHeartbeats: maxMissedHeartbeats,
+    );
+  }
 
   @override
   void init() {
@@ -142,17 +158,30 @@ class WebSocketDuplexConnection extends DuplexConnection with HealthMonitoringMi
   }
 }
 
-Future<DuplexConnection> connectRSocket(String url, TcpChunkHandler handler) {
+Future<DuplexConnection> connectRSocket(
+  String url, 
+  TcpChunkHandler handler, {
+  Duration healthCheckInterval = const Duration(seconds: 5),
+  int maxMissedHeartbeats = 3,
+}) {
   var uri = Uri.parse(url);
   var scheme = uri.scheme;
   if (scheme == 'tcp') {
     var socketFuture = Socket.connect(uri.host, uri.port);
-    return socketFuture.then((socket) => TcpDuplexConnection(socket));
+    return socketFuture.then((socket) => TcpDuplexConnection(
+      socket,
+      healthCheckInterval: healthCheckInterval,
+      maxMissedHeartbeats: maxMissedHeartbeats,
+    ));
   }if (scheme == 'ws' || scheme == 'wss') {
     final websocket = WebSocketChannel.connect(
       Uri.parse(url),
     );
-    return Future.value(WebSocketDuplexConnection(websocket));
+    return Future.value(WebSocketDuplexConnection(
+      websocket,
+      healthCheckInterval: healthCheckInterval,
+      maxMissedHeartbeats: maxMissedHeartbeats,
+    ));
   } else {
     return Future.error('${scheme} unsupported');
   }

@@ -18,31 +18,31 @@ class _ReconnectingRSocket extends RSocket {
   _ReconnectingRSocket(this._connector, this._url) {
     requestResponse = (payload) async {
       final active = _activeRSocket;
-      if (active == null) throw Exception('No active connection');
+      if (active == null) throw RSocketException(RSocketErrorCode.CONNECTION_ERROR, 'No active connection');
       return active.requestResponse!(payload);
     };
     
     fireAndForget = (payload) async {
       final active = _activeRSocket;
-      if (active == null) throw Exception('No active connection');
+      if (active == null) throw RSocketException(RSocketErrorCode.CONNECTION_ERROR, 'No active connection');
       return active.fireAndForget!(payload);
     };
     
     requestStream = (payload) {
       final active = _activeRSocket;
-      if (active == null) return Stream.error(Exception('No active connection'));
+      if (active == null) return Stream.error(RSocketException(RSocketErrorCode.CONNECTION_ERROR, 'No active connection'));
       return active.requestStream!(payload);
     };
     
     requestChannel = (payloads) {
       final active = _activeRSocket;
-      if (active == null) return Stream.error(Exception('No active connection'));
+      if (active == null) return Stream.error(RSocketException(RSocketErrorCode.CONNECTION_ERROR, 'No active connection'));
       return active.requestChannel!(payloads);
     };
     
     metadataPush = (payload) async {
       final active = _activeRSocket;
-      if (active == null) throw Exception('No active connection');
+      if (active == null) throw RSocketException(RSocketErrorCode.CONNECTION_ERROR, 'No active connection');
       return active.metadataPush!(payload);
     };
   }
@@ -174,7 +174,7 @@ class RSocketConnector {
           rsocketRequester.close();
           _connectionStateController.add(ConnectionEvent(ConnectionState.failed, 
               error: 'Connection refused, please check setup and security!'));
-          throw Exception('RSOCKET-0x00000003: Connection refused, please check setup and security!');
+          throw RSocketException(RSocketErrorCode.REJECTED_SETUP, 'Connection refused, please check setup and security!');
         }
       } else {
         rsocketRequester.responder = RSocket();
