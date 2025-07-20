@@ -3,9 +3,31 @@ import 'dart:typed_data';
 
 import 'package:rsocket/core/rsocket_error.dart';
 import 'package:rsocket/core/rsocket_requester.dart';
+import 'package:rsocket/duplex_connection.dart';
 import 'package:rsocket/frame/frame.dart';
 import 'package:rsocket/io/bytes.dart';
+import 'package:rsocket/payload.dart';
 import 'package:test/test.dart';
+
+// Mock connection for testing
+class MockDuplexConnection extends DuplexConnection {
+  final sentFrames = <Uint8List>[];
+  void Function(Uint8List chunk)? receiveHandler;
+  void Function()? closeHandler;
+  
+  @override
+  void init() {}
+  
+  @override
+  void write(Uint8List frame) {
+    sentFrames.add(frame);
+  }
+  
+  @override
+  void close() {
+    closeHandler?.call();
+  }
+}
 
 void main() {
   group('Simple CANCEL Frame Tests', () {
@@ -60,10 +82,15 @@ void main() {
     test('StreamSubscriber completes stream on cancel', () async {
       var receivedData = <Payload?>[];
       var streamCompleted = false;
+      var connection = MockDuplexConnection();
       
-      var subscriber = StreamSubscriber(onCancel: () {
-        // This would send CANCEL frame in real scenario
-      });
+      var subscriber = StreamSubscriber(
+        streamId: 1,
+        connection: connection,
+        onCancel: () {
+          // This would send CANCEL frame in real scenario
+        },
+      );
       
       // Listen to the stream
       subscriber.payloadStream().listen(
@@ -85,14 +112,23 @@ void main() {
       expect(streamCompleted, isTrue);
     });
     
-    test('_StreamSubscription can be cancelled', () {
+    test('Stream subscription cancellation works', () async {
       var cancelled = false;
-      var mockSubscription = MockStreamSubscription(() {
-        cancelled = true;
-      });
+      var connection = MockDuplexConnection();
+      var subscriber = StreamSubscriber(
+        streamId: 2,
+        connection: connection,
+        onCancel: () {
+          cancelled = true;
+        },
+      );
       
-      var wrapper = _StreamSubscription(mockSubscription);
-      wrapper.cancel();
+      // Get the stream and create a subscription
+      var stream = subscriber.payloadStream();
+      var subscription = stream.listen((data) {});
+      
+      // Cancel the subscription
+      await subscription.cancel();
       
       expect(cancelled, isTrue);
     });

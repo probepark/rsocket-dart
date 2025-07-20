@@ -155,7 +155,10 @@ void main() {
       // Add multiple active operations
       requester.senders[1] = CompleterSubscriber(streamCompleter1);
       requester.senders[3] = CompleterSubscriber(streamCompleter2);
-      requester.senders[5] = StreamSubscriber();
+      requester.senders[5] = StreamSubscriber(
+        streamId: 5,
+        connection: connection,
+      );
       
       // Close the connection
       requester.close();

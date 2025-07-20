@@ -20,14 +20,16 @@ class FlowControlRSocket extends RSocket {
   @override
   MetadataPush? get metadataPush => _delegate.metadataPush;
 
-  @override
-  RequestResponse? get subscribe => _delegate.subscribe;
 
   /// Request stream with configurable initial request N
   Stream<Payload?> requestStreamWithRequestN(Payload? payload,
       {int? initialRequestN}) {
-    // This will be handled by the RSocketRequester implementation
-    // which now supports the initialRequestN parameter
+    // If delegate is RSocketRequester, use its requestStream with initialRequestN
+    if (_delegate is RSocketRequester) {
+      final requester = _delegate as RSocketRequester;
+      return requester.requestStream!(payload, initialRequestN: initialRequestN ?? 32);
+    }
+    // Otherwise fall back to regular requestStream
     return _delegate.requestStream!(payload);
   }
 

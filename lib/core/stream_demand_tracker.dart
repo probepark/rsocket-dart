@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import 'rsocket_requester.dart' show MAX_REQUEST_N_SIZE;
+
 /// Tracks demand for each stream to implement flow control
 class StreamDemandTracker {
   final Map<int, int> _demandByStreamId = HashMap();
@@ -15,8 +17,8 @@ class StreamDemandTracker {
 
     var currentDemand = _demandByStreamId[streamId] ?? 0;
     // Prevent overflow
-    if (currentDemand > 0 && n > (0x7FFFFFFF - currentDemand)) {
-      _demandByStreamId[streamId] = 0x7FFFFFFF;
+    if (currentDemand > 0 && n > (MAX_REQUEST_N_SIZE - currentDemand)) {
+      _demandByStreamId[streamId] = MAX_REQUEST_N_SIZE;
     } else {
       _demandByStreamId[streamId] = currentDemand + n;
     }

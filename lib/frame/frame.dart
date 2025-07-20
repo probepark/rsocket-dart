@@ -8,6 +8,9 @@ import 'frame_types.dart' as frame_types;
 const int MAJOR_VERSION = 1;
 const int MINOR_VERSION = 0;
 
+// Frame flags
+const int FLAG_LEASE = 0x40;
+
 Iterable<RSocketFrame> parseFrames(List<int> chunk) sync* {
   var byteBuffer = RSocketByteBuffer.fromArray(chunk);
   while (byteBuffer.isReadable()) {
@@ -128,7 +131,7 @@ class SetupFrame extends RSocketFrame {
   SetupFrame.fromBuffer(RSocketHeader header, RSocketByteBuffer buffer) {
     this.header = header;
     var resumeEnable = (header.flags & 0x80) > 0;
-    leaseEnable = (header.flags & 0x40) > 0;
+    leaseEnable = (header.flags & FLAG_LEASE) > 0;
     // ignore: unused_local_variable
     var majorVersion = buffer.readI16();
     // ignore: unused_local_variable
@@ -337,7 +340,7 @@ class PayloadFrame extends RSocketFrame {
 
   PayloadFrame.fromBuffer(RSocketHeader header, RSocketByteBuffer buffer) {
     this.header = header;
-    completed = (header.flags & 0x40) > 0;
+    completed = (header.flags & FLAG_LEASE) > 0;
     if (header.frameLength > 0) {
       payload = decodePayload(buffer, header.metaPresent, header.frameLength);
     }
@@ -358,7 +361,7 @@ class FrameCodec {
     //frame type with metadata indicator, lease flag, without resume token
     var flags = 0;
     if (leaseEnable) {
-      flags |= 0x40; // Set lease flag
+      flags |= FLAG_LEASE; // Set lease flag
     }
     writeTFrameTypeAndFlags(
         frameBuffer, frame_types.SETUP, setupPayload?.metadata, flags);
@@ -460,7 +463,7 @@ class FrameCodec {
     frameBuffer.writeI32(streamId); //stream id
     var flags = 0;
     if (completed) {
-      flags = flags | 0x40; //complete
+      flags = flags | FLAG_LEASE; //complete
     } else {
       flags = flags | 0x20; //next
     }

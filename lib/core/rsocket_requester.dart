@@ -15,6 +15,7 @@ import 'stream_demand_tracker.dart';
 Future<void> voidFuture() async {}
 
 const MAX_REQUEST_N_SIZE = 0x7FFFFFFF;
+const DEFAULT_REQUEST_N = 32;
 
 abstract class Subscriber {
   void onNext(Payload? value);
@@ -59,7 +60,7 @@ class StreamSubscriber implements Subscriber {
     required this.streamId,
     required this.connection,
     this.demandTracker,
-    this.requestN = 32, // Default request N value
+    this.requestN = DEFAULT_REQUEST_N, // Default request N value
     FutureOr<void> Function()? onCancel,
   }) : controller = StreamController(onCancel: onCancel);
 
@@ -281,7 +282,7 @@ class RSocketRequester extends RSocket {
         connection: connection,
         demandTracker: _outgoingDemandTracker,
         requestN:
-            initialRequestN == MAX_REQUEST_N_SIZE ? MAX_REQUEST_N_SIZE : 32,
+            initialRequestN == MAX_REQUEST_N_SIZE ? MAX_REQUEST_N_SIZE : DEFAULT_REQUEST_N,
         onCancel: () {
           connection.write(FrameCodec.encodeCancelFrame(streamId));
           senders.remove(streamId);
@@ -299,22 +300,25 @@ class RSocketRequester extends RSocket {
     //RSocket requestChannel
     requestChannel = (payloads) {
       var streamId = streamIdSupplier.nextStreamId(senders)!;
+      StreamSubscription? payloadSubscription;
+      
       var streamSubscriber = StreamSubscriber(
         streamId: streamId,
         connection: connection,
         demandTracker: _outgoingDemandTracker,
-        requestN: 32,
+        requestN: DEFAULT_REQUEST_N,
         onCancel: () {
           connection.write(FrameCodec.encodeCancelFrame(streamId));
           senders.remove(streamId);
           _outgoingDemandTracker.removeStream(streamId);
+          payloadSubscription?.cancel();
         },
       );
       senders[streamId] = streamSubscriber;
       
       // Listen to the input stream and send payloads
       bool firstPayload = true;
-      payloads.listen((payload) {
+      payloadSubscription = payloads.listen((payload) {
         if (firstPayload) {
           // Send the first payload with REQUEST_CHANNEL frame
           connection.write(FrameCodec.encodeChannelFrame(
@@ -359,12 +363,8 @@ class RSocketRequester extends RSocket {
 
     // Send initial lease grant if server with lease enabled
     if (mode == 'responder' && leaseEnabled && serverLeaseManager != null) {
-      // Send initial lease after a short delay to ensure setup is processed
-      Timer(Duration(milliseconds: 100), () {
-        if (!closed) {
-          grantLease();
-        }
-      });
+      // Grant lease immediately after setup is sent
+      grantLease();
     }
   }
 
