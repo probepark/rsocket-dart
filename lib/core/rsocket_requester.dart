@@ -139,16 +139,16 @@ class _StreamSubscription implements Subscriber {
 class _ChannelSubscriber implements Subscriber {
   final StreamController<Payload> inputController;
   StreamSubscription? subscription;
-  
+
   _ChannelSubscriber(this.inputController);
-  
+
   @override
   void onNext(Payload? value) {
     if (value != null && !inputController.isClosed) {
       inputController.add(value);
     }
   }
-  
+
   @override
   void onError(dynamic error) {
     if (!inputController.isClosed) {
@@ -157,7 +157,7 @@ class _ChannelSubscriber implements Subscriber {
     }
     subscription?.cancel();
   }
-  
+
   @override
   void onComplete() {
     if (!inputController.isClosed) {
@@ -165,7 +165,7 @@ class _ChannelSubscriber implements Subscriber {
     }
     subscription?.cancel();
   }
-  
+
   void cancel() {
     if (!inputController.isClosed) {
       inputController.close();
@@ -190,7 +190,7 @@ class RSocketRequester extends RSocket {
   RSocket? responder;
   String mode = 'requester';
   ErrorConsumer? errorConsumer;
-  
+
   /// Track active stream count for resource protection
   int _activeStreamCount = 0;
 
@@ -202,14 +202,15 @@ class RSocketRequester extends RSocket {
   // Demand tracking for flow control
   final StreamDemandTracker _incomingDemandTracker = StreamDemandTracker();
   final StreamDemandTracker _outgoingDemandTracker = StreamDemandTracker();
-  
+
   // Connection health monitoring
   StreamSubscription? _healthSubscription;
   final Duration _keepAliveTimeout = Duration(seconds: 30);
   Function(ConnectionHealth)? onConnectionHealthChanged;
 
   RSocketRequester(String mode, ConnectionSetupPayload connectionSetupPayload,
-      DuplexConnection connection, {bool enableLease = false}) {
+      DuplexConnection connection,
+      {bool enableLease = false}) {
     this.mode = mode;
     if (mode == 'requester') {
       streamIdSupplier = StreamIdSupplier.clientSupplier();
@@ -219,7 +220,7 @@ class RSocketRequester extends RSocket {
     this.connectionSetupPayload = connectionSetupPayload;
     this.connection = connection;
     this.leaseEnabled = enableLease;
-    
+
     // Initialize lease management
     if (enableLease) {
       if (mode == 'requester') {
@@ -232,14 +233,14 @@ class RSocketRequester extends RSocket {
         serverLeaseManager!.start();
       }
     }
-    
+
     if (this.connection.receiveHandler == null) {
       this.connection.receiveHandler = (chunk) => receiveChunk(chunk);
     }
     this.connection.closeHandler = () {
       close();
     };
-    
+
     // Monitor connection health
     _healthSubscription = this.connection.healthStream.listen((health) {
       onConnectionHealthChanged?.call(health);
@@ -247,7 +248,7 @@ class RSocketRequester extends RSocket {
         close();
       }
     });
-    
+
     initRSocketCallStubs();
   }
 
@@ -259,12 +260,14 @@ class RSocketRequester extends RSocket {
       // Check lease if enabled
       if (leaseEnabled && mode == 'requester') {
         if (leaseManager == null || !leaseManager!.consumeRequest()) {
-          RSocketLogger.debug('Request rejected: Lease exhausted or expired. LeaseManager: $leaseManager, hasAvailableRequests: ${leaseManager?.hasAvailableRequests}');
+          RSocketLogger.debug(
+              'Request rejected: Lease exhausted or expired. LeaseManager: $leaseManager, hasAvailableRequests: ${leaseManager?.hasAvailableRequests}');
           completer.completeError(RSocketException(
               RSocketErrorCode.REJECTED, 'Lease exhausted or expired'));
           return completer.future;
         }
-        RSocketLogger.debug('Request allowed: Available requests: ${leaseManager!.availableRequests}');
+        RSocketLogger.debug(
+            'Request allowed: Available requests: ${leaseManager!.availableRequests}');
       }
 
       // Check stream limit
@@ -272,7 +275,7 @@ class RSocketRequester extends RSocket {
         return Future.error(RSocketException(
             RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
       }
-      
+
       var streamId = streamIdSupplier.nextStreamId(senders)!;
       _activeStreamCount++;
       connection
@@ -295,7 +298,7 @@ class RSocketRequester extends RSocket {
         return Future.error(RSocketException(
             RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
       }
-      
+
       var streamId = streamIdSupplier.nextStreamId(senders)!;
       _activeStreamCount++;
       connection.write(FrameCodec.encodeFireAndForgetFrame(streamId, payload!));
@@ -318,7 +321,7 @@ class RSocketRequester extends RSocket {
         return Stream.error(RSocketException(
             RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
       }
-      
+
       var streamId = streamIdSupplier.nextStreamId(senders)!;
       _activeStreamCount++;
       // Send initial request with the specified or default requestN
@@ -332,8 +335,9 @@ class RSocketRequester extends RSocket {
         streamId: streamId,
         connection: connection,
         demandTracker: _outgoingDemandTracker,
-        requestN:
-            initialRequestN == MAX_REQUEST_N_SIZE ? MAX_REQUEST_N_SIZE : DEFAULT_REQUEST_N,
+        requestN: initialRequestN == MAX_REQUEST_N_SIZE
+            ? MAX_REQUEST_N_SIZE
+            : DEFAULT_REQUEST_N,
         onCancel: () {
           connection.write(FrameCodec.encodeCancelFrame(streamId));
           senders.remove(streamId);
@@ -356,11 +360,11 @@ class RSocketRequester extends RSocket {
         return Stream.error(RSocketException(
             RSocketErrorCode.REJECTED, 'Maximum concurrent streams exceeded'));
       }
-      
+
       var streamId = streamIdSupplier.nextStreamId(senders)!;
       _activeStreamCount++;
       StreamSubscription? payloadSubscription;
-      
+
       var streamSubscriber = StreamSubscriber(
         streamId: streamId,
         connection: connection,
@@ -375,7 +379,7 @@ class RSocketRequester extends RSocket {
         },
       );
       senders[streamId] = streamSubscriber;
-      
+
       // Listen to the input stream and send payloads
       bool firstPayload = true;
       payloadSubscription = payloads.listen((payload) {
@@ -386,13 +390,12 @@ class RSocketRequester extends RSocket {
           firstPayload = false;
         } else {
           // Send subsequent payloads as PAYLOAD frames
-          connection.write(FrameCodec.encodePayloadFrame(
-              streamId, false, payload));
+          connection
+              .write(FrameCodec.encodePayloadFrame(streamId, false, payload));
         }
       }, onDone: () {
         // Send completion signal
-        connection.write(FrameCodec.encodePayloadFrame(
-            streamId, true, null));
+        connection.write(FrameCodec.encodePayloadFrame(streamId, true, null));
       }, onError: (error) {
         var rsocketError = convertToRSocketException(error);
         connection.write(FrameCodec.encodeErrorFrame(
@@ -400,8 +403,9 @@ class RSocketRequester extends RSocket {
         senders.remove(streamId);
         _activeStreamCount--;
       });
-      
-      return streamSubscriber.payloadStream()
+
+      return streamSubscriber
+          .payloadStream()
           .where((payload) => payload != null)
           .cast<Payload>();
     };
@@ -429,7 +433,7 @@ class RSocketRequester extends RSocket {
       grantLease();
     }
   }
-  
+
   void _startKeepAliveResponseTimer() {
     _keepAliveResponseTimer?.cancel();
     _keepAliveResponseTimer = Timer(_keepAliveTimeout, () {
@@ -549,8 +553,9 @@ class RSocketRequester extends RSocket {
         break;
       case frame_types.KEEPALIVE:
         var keepAliveFrame = frame as KeepAliveFrame;
-        _keepAliveResponseTimer?.cancel(); // Cancel timeout timer as we received response
-        
+        _keepAliveResponseTimer
+            ?.cancel(); // Cancel timeout timer as we received response
+
         if (keepAliveFrame.respond) {
           connection.write(FrameCodec.encodeKeepAlive(
               false, keepAliveFrame.lastReceivedPosition));
@@ -595,7 +600,8 @@ class RSocketRequester extends RSocket {
       case frame_types.REQUEST_RESPONSE:
         var requestResponseFrame = frame as RequestResponseFrame;
         if (responder != null && requestResponseFrame.payload != null) {
-          responder!.requestResponse!(requestResponseFrame.payload).then((payload) {
+          responder!.requestResponse!(requestResponseFrame.payload)
+              .then((payload) {
             connection.write(
                 FrameCodec.encodePayloadFrame(header.streamId, true, payload));
           }).catchError((error) {
@@ -693,20 +699,20 @@ class RSocketRequester extends RSocket {
         if (responder != null) {
           // Create a stream controller for sending payloads to responder
           var inputController = StreamController<Payload>();
-          
+
           // Add the first payload from the frame
           if (requestChannelFrame.payload != null) {
             inputController.add(requestChannelFrame.payload!);
           }
-          
+
           // Store the controller so we can send more payloads when they arrive
           var channelSubscriber = _ChannelSubscriber(inputController);
           senders[requesterStreamId] = channelSubscriber;
           _activeStreamCount++;
-          
+
           // Call the responder's requestChannel handler
-          var subscription = responder!.requestChannel!(inputController.stream).listen(
-              (payload) {
+          var subscription = responder!.requestChannel!(inputController.stream)
+              .listen((payload) {
             connection.write(FrameCodec.encodePayloadFrame(
                 requesterStreamId, false, payload));
           }, onDone: () {
@@ -728,7 +734,7 @@ class RSocketRequester extends RSocket {
             _activeStreamCount--;
             inputController.close();
           });
-          
+
           // Store the subscription so it can be cancelled
           channelSubscriber.subscription = subscription;
         }
@@ -757,4 +763,3 @@ RSocketException convertToRSocketException(dynamic e) {
     return RSocketException(RSocketErrorCode.APPLICATION_ERROR, e.toString());
   }
 }
-

@@ -32,9 +32,9 @@ void main() {
       );
 
       expect(lease.isValid(), isTrue);
-      
+
       await Future.delayed(Duration(milliseconds: 150));
-      
+
       expect(lease.isValid(), isFalse);
       expect(lease.remainingTtl(), equals(0));
     });
@@ -106,9 +106,9 @@ void main() {
 
     test('should encode lease frame correctly', () {
       final frame = FrameCodec.encodeLeaseFrame(60000, 100);
-      
+
       expect(frame.length, greaterThan(0));
-      // Frame should start with 3-byte length, 4-byte stream ID (0), 
+      // Frame should start with 3-byte length, 4-byte stream ID (0),
       // 1-byte frame type, 1-byte flags, 4-byte TTL, 4-byte requests
       expect(frame.length, greaterThanOrEqualTo(17));
     });
@@ -148,7 +148,7 @@ void main() {
 
     test('should start with default parameters', () {
       serverLeaseManager.start();
-      
+
       expect(serverLeaseManager.availableRequests, equals(100));
       expect(serverLeaseManager.isLeaseValid(), isTrue);
     });
@@ -161,17 +161,17 @@ void main() {
         refillInterval: Duration(milliseconds: 100),
       );
       serverLeaseManager.start();
-      
+
       // Initial lease should be granted
       expect(serverLeaseManager.availableRequests, equals(100));
-      
+
       // Consume some requests
       serverLeaseManager.consumeRequests(50);
       expect(serverLeaseManager.availableRequests, equals(50));
-      
+
       // Wait for multiple refill intervals to ensure at least one refill happens
       await Future.delayed(Duration(milliseconds: 250));
-      
+
       // Should have refilled at least 1 request (10 req/sec * 0.1 sec = 1 request per interval)
       // But we waited for 2.5 intervals, so should have at least 2 requests refilled
       expect(serverLeaseManager.availableRequests, greaterThanOrEqualTo(52));
@@ -184,16 +184,16 @@ void main() {
         maxRequestsPerSecond: 100,
         refillInterval: Duration(milliseconds: 100),
       );
-      
+
       serverLeaseManager.start();
-      
+
       // Consume all
       serverLeaseManager.consumeRequests(10);
       expect(serverLeaseManager.availableRequests, equals(0));
-      
+
       // Wait for multiple refills
       await Future.delayed(Duration(milliseconds: 250));
-      
+
       // Should be capped at defaultNumberOfRequests
       expect(serverLeaseManager.availableRequests, lessThanOrEqualTo(10));
     });
@@ -203,7 +203,7 @@ void main() {
         numberOfRequests: 200,
         timeToLive: 30000,
       );
-      
+
       expect(frame.length, greaterThan(0));
       expect(serverLeaseManager.availableRequests, equals(200));
     });
@@ -211,12 +211,12 @@ void main() {
     test('should stop refilling when stopped', () async {
       serverLeaseManager.start();
       serverLeaseManager.consumeRequests(50);
-      
+
       serverLeaseManager.stop();
-      
+
       var requestsAfterStop = serverLeaseManager.availableRequests;
       await Future.delayed(Duration(milliseconds: 200));
-      
+
       // Should not have refilled after stop
       expect(serverLeaseManager.availableRequests, equals(requestsAfterStop));
     });

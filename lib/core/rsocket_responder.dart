@@ -1,5 +1,3 @@
-
-
 import 'package:universal_io/io.dart';
 import 'package:web_socket_channel/io.dart';
 
@@ -29,9 +27,9 @@ class BaseResponder {
             ..dataMimeType = setupFrame.dataMimeType
             ..data = setupFrame.payload?.data
             ..metadata = setupFrame.payload?.data;
-          var temp =
-              RSocketRequester('responder', connectionSetupPayload, duplexConn, 
-                  enableLease: setupFrame.leaseEnable);
+          var temp = RSocketRequester(
+              'responder', connectionSetupPayload, duplexConn,
+              enableLease: setupFrame.leaseEnable);
           var responder = socketAcceptor(connectionSetupPayload, temp);
           if (responder == null) {
             duplexConn.close();
@@ -57,11 +55,11 @@ class TcpRSocketResponder extends BaseResponder implements Closeable {
   final int maxMissedHeartbeats;
 
   TcpRSocketResponder(
-      Uri uri, 
-      ServerSocket serverSocket, 
-      SocketAcceptor socketAcceptor, {
-      this.healthCheckInterval = const Duration(seconds: 5),
-      this.maxMissedHeartbeats = 3,
+    Uri uri,
+    ServerSocket serverSocket,
+    SocketAcceptor socketAcceptor, {
+    this.healthCheckInterval = const Duration(seconds: 5),
+    this.maxMissedHeartbeats = 3,
   }) {
     this.uri = uri;
     this.socketAcceptor = socketAcceptor;
@@ -90,11 +88,11 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
   final int maxMissedHeartbeats;
 
   WebSocketRSocketResponder(
-      Uri uri, 
-      HttpServer httpServer, 
-      SocketAcceptor socketAcceptor, {
-      this.healthCheckInterval = const Duration(seconds: 5),
-      this.maxMissedHeartbeats = 3,
+    Uri uri,
+    HttpServer httpServer,
+    SocketAcceptor socketAcceptor, {
+    this.healthCheckInterval = const Duration(seconds: 5),
+    this.maxMissedHeartbeats = 3,
   }) {
     this.uri = uri;
     this.socketAcceptor = socketAcceptor;
@@ -106,12 +104,11 @@ class WebSocketRSocketResponder extends BaseResponder implements Closeable {
       if (req.uri.path == uri.path) {
         try {
           final webSocket = await WebSocketTransformer.upgrade(req);
-          await receiveConnection(
-              WebSocketDuplexConnection(
-                IOWebSocketChannel(webSocket),
-                healthCheckInterval: healthCheckInterval,
-                maxMissedHeartbeats: maxMissedHeartbeats,
-              ));
+          await receiveConnection(WebSocketDuplexConnection(
+            IOWebSocketChannel(webSocket),
+            healthCheckInterval: healthCheckInterval,
+            maxMissedHeartbeats: maxMissedHeartbeats,
+          ));
         } catch (e) {
           RSocketLogger.error('Error handling WebSocket connection', e);
         }

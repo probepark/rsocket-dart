@@ -46,11 +46,12 @@ class LeaseManager {
   Lease? _currentLease;
   int _availableRequests = 0;
   Timer? _expirationTimer;
-  final StreamController<Lease> _leaseUpdateController = StreamController.broadcast();
-  
+  final StreamController<Lease> _leaseUpdateController =
+      StreamController.broadcast();
+
   /// Callback for when lease expires
   void Function()? onLeaseExpired;
-  
+
   /// Callback for when available requests reaches zero
   void Function()? onRequestsExhausted;
 
@@ -71,18 +72,18 @@ class LeaseManager {
   /// Update the lease with a new grant
   void updateLease(int numberOfRequests, int timeToLive) {
     _expirationTimer?.cancel();
-    
+
     _currentLease = Lease(
       numberOfRequests: numberOfRequests,
       timeToLive: timeToLive,
     );
     _availableRequests = numberOfRequests;
-    
+
     // Notify listeners if controller is not closed
     if (!_leaseUpdateController.isClosed) {
       _leaseUpdateController.add(_currentLease!);
     }
-    
+
     // Set up expiration timer
     _expirationTimer = Timer(Duration(milliseconds: timeToLive), () {
       _handleLeaseExpiration();
@@ -95,13 +96,13 @@ class LeaseManager {
     if (!hasAvailableRequests) {
       return false;
     }
-    
+
     _availableRequests--;
-    
+
     if (_availableRequests == 0 && onRequestsExhausted != null) {
       onRequestsExhausted!();
     }
-    
+
     return true;
   }
 
@@ -110,13 +111,13 @@ class LeaseManager {
     if (!isLeaseValid() || _availableRequests < count) {
       return false;
     }
-    
+
     _availableRequests -= count;
-    
+
     if (_availableRequests == 0 && onRequestsExhausted != null) {
       onRequestsExhausted!();
     }
-    
+
     return true;
   }
 
@@ -124,7 +125,7 @@ class LeaseManager {
   void _handleLeaseExpiration() {
     _currentLease = null;
     _availableRequests = 0;
-    
+
     if (onLeaseExpired != null) {
       onLeaseExpired!();
     }
@@ -134,11 +135,11 @@ class LeaseManager {
   Uint8List? createLeaseFrame({int? numberOfRequests, int? timeToLive}) {
     final requests = numberOfRequests ?? _availableRequests;
     final ttl = timeToLive ?? (_currentLease?.remainingTtl() ?? 0);
-    
+
     if (requests <= 0 || ttl <= 0) {
       return null;
     }
-    
+
     return FrameCodec.encodeLeaseFrame(ttl, requests);
   }
 
@@ -147,10 +148,12 @@ class LeaseManager {
     _expirationTimer?.cancel();
     _leaseUpdateController.close();
   }
-  
+
   /// Encode a LEASE frame to send to peer
-  static Uint8List encodeLeaseFrame(int numberOfRequests, int timeToLive, {Uint8List? metadata}) {
-    return FrameCodec.encodeLeaseFrame(timeToLive, numberOfRequests, metadata: metadata);
+  static Uint8List encodeLeaseFrame(int numberOfRequests, int timeToLive,
+      {Uint8List? metadata}) {
+    return FrameCodec.encodeLeaseFrame(timeToLive, numberOfRequests,
+        metadata: metadata);
   }
 }
 
@@ -159,59 +162,60 @@ class ServerLeaseManager extends LeaseManager {
   /// Default lease parameters
   int defaultNumberOfRequests;
   int defaultTimeToLive;
-  
+
   /// Rate limiting parameters
   final int maxRequestsPerSecond;
   final Duration refillInterval;
   Timer? _refillTimer;
-  
+
   ServerLeaseManager({
     this.defaultNumberOfRequests = 128,
     this.defaultTimeToLive = 60000, // 60 seconds
     this.maxRequestsPerSecond = 100,
     this.refillInterval = const Duration(seconds: 1),
   });
-  
+
   /// Start the lease manager (begins refilling)
   void start() {
     _refillTimer?.cancel();
     _refillTimer = Timer.periodic(refillInterval, (_) {
       _refillRequests();
     });
-    
+
     // Grant initial lease
     updateLease(defaultNumberOfRequests, defaultTimeToLive);
   }
-  
+
   /// Stop the lease manager
   void stop() {
     _refillTimer?.cancel();
     _refillTimer = null;
   }
-  
+
   /// Refill available requests based on rate limit
   void _refillRequests() {
     if (isLeaseValid()) {
       // Calculate refill amount based on the refill interval in milliseconds
-      final refillAmount = (maxRequestsPerSecond * refillInterval.inMilliseconds / 1000).round();
+      final refillAmount =
+          (maxRequestsPerSecond * refillInterval.inMilliseconds / 1000).round();
       final newTotal = _availableRequests + refillAmount;
-      
+
       // Cap at default maximum
-      _availableRequests = newTotal > defaultNumberOfRequests 
-          ? defaultNumberOfRequests 
+      _availableRequests = newTotal > defaultNumberOfRequests
+          ? defaultNumberOfRequests
           : newTotal;
     }
   }
-  
+
   /// Grant a new lease to the client
   Uint8List grantLease({int? numberOfRequests, int? timeToLive}) {
     final requests = numberOfRequests ?? defaultNumberOfRequests;
     final ttl = timeToLive ?? defaultTimeToLive;
-    
+
     updateLease(requests, ttl);
     return FrameCodec.encodeLeaseFrame(ttl, requests);
   }
-  
+
   @override
   void dispose() {
     stop();

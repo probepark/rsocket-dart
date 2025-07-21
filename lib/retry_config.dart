@@ -18,14 +18,14 @@ class RetryConfig {
   });
 
   Duration calculateDelay(int attemptNumber) {
-    final baseDelay = initialDelay.inMilliseconds * 
+    final baseDelay = initialDelay.inMilliseconds *
         math.pow(backoffMultiplier, attemptNumber);
-    
-    final delayWithJitter = baseDelay + 
-        (baseDelay * jitter * (math.Random().nextDouble() - 0.5));
-    
+
+    final delayWithJitter =
+        baseDelay + (baseDelay * jitter * (math.Random().nextDouble() - 0.5));
+
     final finalDelay = math.min(delayWithJitter, maxDelay.inMilliseconds);
-    
+
     return Duration(milliseconds: finalDelay.round());
   }
 
@@ -36,7 +36,7 @@ class RetryConfig {
   }
 
   static const RetryConfig defaultConfig = RetryConfig();
-  
+
   static const RetryConfig aggressive = RetryConfig(
     maxRetryAttempts: 10,
     initialDelay: Duration(milliseconds: 500),
@@ -44,7 +44,7 @@ class RetryConfig {
     backoffMultiplier: 1.5,
     jitter: 0.2,
   );
-  
+
   static const RetryConfig conservative = RetryConfig(
     maxRetryAttempts: 3,
     initialDelay: Duration(seconds: 2),
@@ -89,7 +89,7 @@ class ConnectionEvent {
   final dynamic error;
   final int? attemptNumber;
 
-  ConnectionEvent(this.state, {this.error, this.attemptNumber}) 
+  ConnectionEvent(this.state, {this.error, this.attemptNumber})
       : timestamp = DateTime.now();
 
   @override

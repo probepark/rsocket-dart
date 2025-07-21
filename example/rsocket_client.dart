@@ -7,8 +7,10 @@ void main() async {
   // Example 1: Basic connection without retry
   RSocketLogger.info('=== Basic Connection ===');
   try {
-    var rsocket = await RSocketConnector.create().connect('tcp://127.0.0.1:42252');
-    var result = await rsocket.requestResponse!(Payload.fromText('text/plain', 'Ping'));
+    var rsocket =
+        await RSocketConnector.create().connect('tcp://127.0.0.1:42252');
+    var result =
+        await rsocket.requestResponse!(Payload.fromText('text/plain', 'Ping'));
     RSocketLogger.info('Response: ${result.getDataUtf8()}');
   } catch (e) {
     RSocketLogger.error('Connection failed', e);
@@ -22,7 +24,8 @@ void main() async {
 
   // Listen to connection state changes
   connector.connectionStateStream.listen((event) {
-    RSocketLogger.info('Connection state: ${event.state}${event.attemptNumber != null ? ' (attempt ${event.attemptNumber})' : ''}');
+    RSocketLogger.info(
+        'Connection state: ${event.state}${event.attemptNumber != null ? ' (attempt ${event.attemptNumber})' : ''}');
     if (event.error != null) {
       RSocketLogger.warning('Connection error', event.error);
     }
@@ -31,7 +34,8 @@ void main() async {
   // Listen to connection health changes
   connector.healthStream.listen((health) {
     final status = health.isHealthy ? "Healthy" : "Unhealthy";
-    RSocketLogger.info('Connection health: $status (missed heartbeats: ${health.missedHeartbeats})');
+    RSocketLogger.info(
+        'Connection health: $status (missed heartbeats: ${health.missedHeartbeats})');
     if (health.errorMessage != null) {
       RSocketLogger.warning('Health check error: ${health.errorMessage}');
     }
@@ -39,7 +43,8 @@ void main() async {
 
   try {
     var rsocket = await connector.connect('tcp://127.0.0.1:42252');
-    var result = await rsocket.requestResponse!(Payload.fromText('text/plain', 'Ping with retry'));
+    var result = await rsocket
+        .requestResponse!(Payload.fromText('text/plain', 'Ping with retry'));
     RSocketLogger.info('Response: ${result.getDataUtf8()}');
   } catch (e) {
     RSocketLogger.error('Final connection failure', e);
@@ -55,14 +60,13 @@ void main() async {
     jitter: 0.2,
     retryWhen: (error) {
       // Only retry on specific errors
-      return error.toString().contains('connection') || 
-             error.toString().contains('timeout');
+      return error.toString().contains('connection') ||
+          error.toString().contains('timeout');
     },
   );
 
-  final customConnector = RSocketConnector.create()
-      .autoReconnect()
-      .retryConfig(customRetryConfig);
+  final customConnector =
+      RSocketConnector.create().autoReconnect().retryConfig(customRetryConfig);
 
   try {
     await customConnector.connect('tcp://127.0.0.1:42252');
@@ -70,16 +74,17 @@ void main() async {
   } catch (e) {
     RSocketLogger.error('Custom retry failed', e);
   }
-  
+
   // Example 4: Silent mode (no logging)
   RSocketLogger.info('=== Silent Mode ===');
   RSocketLogger.setLogger(NoOpLogger());
-  
+
   try {
     var silentConnector = RSocketConnector.create();
     var rsocket = await silentConnector.connect('tcp://127.0.0.1:42252');
     // This won't log anything
-    await rsocket.requestResponse!(Payload.fromText('text/plain', 'Silent ping'));
+    await rsocket
+        .requestResponse!(Payload.fromText('text/plain', 'Silent ping'));
   } catch (e) {
     // Silent failure
   }

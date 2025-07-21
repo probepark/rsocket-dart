@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RSocket-Dart is a Dart implementation of the RSocket protocol, supporting reactive streams communication patterns. The library provides request/response, fire-and-forget, request stream, and metadata push operations.
+RSocket-Dart is a complete Dart implementation of the RSocket protocol, supporting all core operations including reactive streams communication patterns. The library provides request/response, fire-and-forget, request stream, request channel, and metadata push operations with full protocol compliance.
 
 ## Commands
 
@@ -17,22 +17,25 @@ dart pub get
 # Run all tests
 dart test
 
-# Run specific test
-dart test test/path/to/specific_test.dart
+# Run specific test file
+dart test test/core/rsocket_requester_test.dart
+
+# Run tests matching pattern
+dart test --name "REQUEST_CHANNEL"
 
 # Format code (required before commits)
-dart format lib test
+dart format lib test example
 # or use justfile:
 just format
 
-# Analyze code for issues
-dart analyze
+# Analyze code for issues  
+dart analyze --fatal-infos
 ```
 
 ### Integration Testing with rsocket-cli
 
 ```bash
-# Start test server
+# Start test server (requires rsocket-cli installed)
 just server
 
 # Test request-response
@@ -41,61 +44,108 @@ just request
 # Test streaming
 just stream
 
-# Test server streaming
+# Test server streaming  
 just server-stream
 ```
 
 ## Architecture
 
-### Core Module Structure
+### Core Communication Flow
 
-- **`lib/core/`** - Core protocol implementation
-  - `rsocket_requester.dart` - Client-side request handling
-  - `rsocket_responder.dart` - Server-side response handling
-  - `rsocket_error.dart` - Error definitions and handling
-  - `stream_id_manager.dart` - Stream ID allocation
+The RSocket protocol implementation follows a layered architecture:
 
-- **`lib/frame/`** - RSocket frame protocol
-  - Frame encoding/decoding for all RSocket frame types
-  - Binary protocol implementation
+1. **Transport Layer** (`duplex_connection.dart`) - Handles TCP/WebSocket connections
+2. **Frame Layer** (`frame/`) - Binary protocol frame encoding/decoding
+3. **Protocol Layer** (`core/rsocket_requester.dart`) - RSocket protocol implementation
+4. **Application Layer** (`rsocket_connector.dart`, `rsocket_server.dart`) - High-level APIs
 
-- **`lib/route/`** - Service routing and RPC
-  - `rsocket_rpc_proxy.dart` - Reflection-based RPC proxy
-  - `load_balance.dart` - Client-side load balancing
-  - Service registration and discovery
+### Key Components
 
-- **`lib/metadata/`** - Metadata handling
-  - Composite metadata support
-  - MIME type handling
+**Connection Management**:
+- `DuplexConnection` - Abstract transport interface supporting TCP and WebSocket
+- `RSocketConnector` - Client connection builder with auto-reconnect and retry capabilities
+- `RSocketServer` - Server binding and acceptor pattern implementation
 
-### Key Interfaces
+**Protocol Implementation**:
+- `RSocketRequester` - Core protocol engine handling all frame types and operations
+- Stream ID management with client/server allocation (odd/even)
+- Flow control via `StreamDemandTracker` implementing backpressure
+- Lease management for rate limiting and QoS
 
-**RSocket Operations** (defined via typedefs):
+**Frame Processing**:
+- Complete binary frame codec in `frame/frame.dart`
+- Support for all RSocket frame types (SETUP, PAYLOAD, ERROR, CANCEL, etc.)
+- Efficient parsing with `RSocketByteBuffer` for zero-copy operations
+
+### Advanced Features
+
+**Lease Management** (`lease/lease_manager.dart`):
+- Server-side rate limiting with TTL-based lease grants
+- Client-side lease consumption and tracking
+- Configurable lease policies for QoS control
+
+**Health Monitoring** (`health_monitoring_mixin.dart`):
+- Connection health tracking with heartbeat monitoring
+- Automatic reconnection on connection failures
+- Configurable health check intervals and thresholds
+
+**Flow Control** (`core/stream_demand_tracker.dart`):
+- REQUEST_N based backpressure implementation
+- Per-stream demand tracking
+- Automatic demand management for smooth streaming
+
+### RSocket Operations
+
+All operations are implemented as function typedefs:
 ```dart
 typedef RequestResponse = Future<Payload> Function(Payload? payload);
-typedef FireAndForget = Future<void> Function(Payload? payload);
+typedef FireAndForget = Future<void> Function(Payload? payload);  
 typedef RequestStream = Stream<Payload?> Function(Payload? payload);
-typedef MetadataPush = Future<void> Function(Payload metadata);
+typedef RequestChannel = Stream<Payload> Function(Stream<Payload> payloads);
+typedef MetadataPush = Future<void> Function(Payload? payload);
 ```
 
-**Transport Abstraction**: All transports implement `DuplexConnection` for unified handling of TCP and WebSocket connections.
+**Key Implementation Details**:
+- REQUEST_CHANNEL supports full bidirectional streaming
+- Flow control prevents memory exhaustion under high load
+- Automatic stream cleanup on connection termination
+- Error propagation with proper RSocket error codes
 
-### Design Patterns
+### Service Architecture
 
-1. **Builder Pattern**: `RSocketConnector` uses builder pattern for client configuration
-2. **Reflection-Based RPC**: Service routing uses Dart mirrors for dynamic invocation
-3. **Stream-Based**: Heavy use of Dart streams for reactive programming
-4. **Null Safety**: Fully migrated to Dart null safety
+**Routing & RPC** (`route/`):
+- Service proxy generation for type-safe RPC
+- Load balancing across multiple RSocket endpoints
+- Service discovery integration
+- Reflection-based method invocation
+
+**Metadata System** (`metadata/`):
+- Composite metadata encoding/decoding
+- Well-known MIME type registry
+- Custom metadata extension support
 
 ## Development Notes
 
-- No custom linting rules - project uses Dart defaults
-- Test files mirror the library structure in `test/` directory
-- Example implementations in root: `rsocket_client.dart` and `rsocket_server.dart`
-- REQUEST_CHANNEL operation is not yet implemented
+### Protocol Compliance
+- Full RSocket protocol v1.0 implementation
+- All frame types supported including LEASE, CANCEL, REQUEST_N
+- Proper keep-alive and connection lifecycle management
+- Binary compatibility with other RSocket implementations
 
-## Testing Strategy
+### Performance Considerations
+- Zero-copy frame parsing where possible
+- Configurable stream limits (MAX_CONCURRENT_STREAMS = 256)
+- Efficient byte buffer management
+- RxDart integration for reactive stream processing
 
-1. Unit tests cover individual components
-2. Integration tests use rsocket-cli via justfile commands
-3. No automated CI/CD detected - run tests manually before commits
+### Testing Architecture
+- Unit tests for all frame types and protocol operations
+- Integration tests with external rsocket-cli tool
+- Mock connection infrastructure for isolated testing
+- Example implementations in `example/` directory
+
+### Code Organization
+- Examples moved to `example/` directory (not in root)
+- Test structure mirrors library organization
+- Null safety throughout with defensive programming
+- No custom linting - uses Dart analyzer defaults

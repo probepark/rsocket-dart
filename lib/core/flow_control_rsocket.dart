@@ -21,7 +21,6 @@ class FlowControlRSocket extends RSocket {
   @override
   MetadataPush? get metadataPush => _delegate.metadataPush;
 
-
   /// Request stream with configurable initial request N
   Stream<Payload?> requestStreamWithRequestN(Payload? payload,
       {int? initialRequestN}) {
@@ -29,8 +28,9 @@ class FlowControlRSocket extends RSocket {
     if (_delegate is RSocketRequester) {
       final requester = _delegate as RSocketRequester;
       // Call the requester's method directly with the typed parameters
-      return (requester.requestStream! as Stream<Payload?> Function(Payload?, {int initialRequestN}))(
-          payload, initialRequestN: initialRequestN ?? defaultRequestN);
+      return (requester.requestStream! as Stream<Payload?> Function(Payload?,
+              {int initialRequestN}))(payload,
+          initialRequestN: initialRequestN ?? defaultRequestN);
     }
     // Otherwise fall back to regular requestStream
     return _delegate.requestStream!(payload);
@@ -45,4 +45,3 @@ class FlowControlRSocket extends RSocket {
   @override
   double availability() => _delegate.availability();
 }
-

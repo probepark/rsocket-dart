@@ -16,20 +16,18 @@ abstract class DuplexConnection implements Closeable, Availability {
   TcpChunkHandler? receiveHandler;
   CloseHandler? closeHandler;
   ConnectionHealthHandler? healthHandler;
-  
-  final BehaviorSubject<ConnectionHealth> _healthController = 
-      BehaviorSubject<ConnectionHealth>.seeded(ConnectionHealth(
-        isHealthy: true, 
-        lastHeartbeat: DateTime.now()
-      ));
-  
+
+  final BehaviorSubject<ConnectionHealth> _healthController =
+      BehaviorSubject<ConnectionHealth>.seeded(
+          ConnectionHealth(isHealthy: true, lastHeartbeat: DateTime.now()));
+
   Stream<ConnectionHealth> get healthStream => _healthController.stream;
   ConnectionHealth get currentHealth => _healthController.value;
 
   void init();
 
   void write(Uint8List chunk);
-  
+
   void updateHealth(ConnectionHealth health) {
     if (!_healthController.isClosed) {
       _healthController.add(health);
@@ -41,7 +39,7 @@ abstract class DuplexConnection implements Closeable, Availability {
   double availability() {
     return _availability;
   }
-  
+
   void dispose() {
     _healthController.close();
   }
@@ -55,7 +53,8 @@ class TcpDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
   Socket socket;
   bool closed = false;
 
-  TcpDuplexConnection(this.socket, {
+  TcpDuplexConnection(
+    this.socket, {
     Duration healthCheckInterval = const Duration(seconds: 5),
     int maxMissedHeartbeats = 3,
   }) {
@@ -68,7 +67,7 @@ class TcpDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
   @override
   void init() {
     startHealthMonitoring(connectionType: 'TCP');
-    
+
     socket.listen((data) {
       recordActivity();
       receiveHandler!(data);
@@ -104,11 +103,13 @@ class TcpDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
   }
 }
 
-class WebSocketDuplexConnection extends DuplexConnection with HealthMonitoringMixin {
+class WebSocketDuplexConnection extends DuplexConnection
+    with HealthMonitoringMixin {
   WebSocketChannel webSocket;
   bool closed = true;
 
-  WebSocketDuplexConnection(this.webSocket, {
+  WebSocketDuplexConnection(
+    this.webSocket, {
     Duration healthCheckInterval = const Duration(seconds: 5),
     int maxMissedHeartbeats = 3,
   }) {
@@ -162,7 +163,7 @@ class WebSocketDuplexConnection extends DuplexConnection with HealthMonitoringMi
 }
 
 Future<DuplexConnection> connectRSocket(
-  String url, 
+  String url,
   TcpChunkHandler handler, {
   Duration healthCheckInterval = const Duration(seconds: 5),
   int maxMissedHeartbeats = 3,
@@ -172,11 +173,12 @@ Future<DuplexConnection> connectRSocket(
   if (scheme == 'tcp') {
     var socketFuture = Socket.connect(uri.host, uri.port);
     return socketFuture.then((socket) => TcpDuplexConnection(
-      socket,
-      healthCheckInterval: healthCheckInterval,
-      maxMissedHeartbeats: maxMissedHeartbeats,
-    ));
-  }if (scheme == 'ws' || scheme == 'wss') {
+          socket,
+          healthCheckInterval: healthCheckInterval,
+          maxMissedHeartbeats: maxMissedHeartbeats,
+        ));
+  }
+  if (scheme == 'ws' || scheme == 'wss') {
     final websocket = WebSocketChannel.connect(
       Uri.parse(url),
     );
@@ -189,4 +191,3 @@ Future<DuplexConnection> connectRSocket(
     return Future.error('${scheme} unsupported');
   }
 }
-

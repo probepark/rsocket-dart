@@ -49,4 +49,3 @@ class StreamDemandTracker {
     _demandByStreamId.clear();
   }
 }
-

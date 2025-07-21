@@ -84,4 +84,3 @@ Stream<Payload?> _generateInfiniteStream() async* {
     await Future.delayed(Duration(milliseconds: 100));
   }
 }
-
